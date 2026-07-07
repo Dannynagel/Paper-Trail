@@ -60,6 +60,7 @@ Everything Paper Trail does — SOPs with screenshots, automation scripts, diff 
 2. In Paper Trail options: Provider **Custom**, URL `http://localhost:11434/v1/chat/completions`, model `gemma4:12b-it-qat`, key blank.
 3. **Raise the context window.** Ollama allocates a small context by default and silently truncates what doesn't fit — a long recording (150 multi-anchor steps ≈ 10–15k tokens) would lose steps mid-prompt. Set `OLLAMA_CONTEXT_LENGTH=16384` (or a model-level `num_ctx` parameter) before serving. Use **🔍 Preview what will be sent** to see the exact payload size for a recording.
 4. For automation targets (PowerShell/Playwright), a code-tuned model such as `qwen3:14b` scores noticeably better than a 12B generalist — pull it too and swap the model field when generating scripts. It is text-only, so switch back for screenshots-on SOPs.
+5. If you record desktop apps, enable **Caption desktop frames at capture** (options): each frame is captioned locally while you work (~1–4 s each in the background), so generation stays text-only and fast even for image-heavy recordings — and the small per-request contexts sidestep VRAM pressure on 12 GB cards.
 
 **Narration — whisper-large-v3 via a local Whisper server:**
 

@@ -140,7 +140,7 @@ Providers: Anthropic (/v1/messages with direct-browser-access header), OpenAI (/
 |---|---|---|
 | Semantic action log | Sent to configured model at generation | - |
 | Browser/UIA screenshots | Local only; spliced at export | Operator enables "Send screenshots" |
-| Window-capture frames | Attached at generation | By design: the frame is the step's only meaning |
+| Window-capture frames | Attached at generation | By design: the frame is the step's only meaning. With caption-on-capture (opt-in) each frame is sent once at capture time instead; its caption travels as text at generation |
 | Typed values | Masked | Operator opt-in; secret-like fields stay masked regardless |
 | RPA generation | Always text-only | None - anchors are the payload, never pixels |
 
@@ -169,6 +169,10 @@ Four features added after 1.0, all built on the same premise: every recorded ste
 **Recording diff (`diff.js`, `PTCommon.diffSteps`).** LCS alignment of two recordings' ledgers on `type|kind|label` keys; gap pairs with matching type+kind and ≥ 0.3 token overlap classify as *relabeled*; unchanged pairs flag page/value/anchor changes. The report renders and exports locally; an optional LLM change-management summary sends only step text (never anchors or values) and is covered by the privacy audit like every other target.
 
 **Voice narration.** A 🎤 toggle records mic audio in the panel (MediaRecorder, webm/opus) and transcribes it through a user-configured OpenAI-compatible `/v1/audio/transcriptions` endpoint (`verbose_json` required). Segments attach to steps by timestamp (`PTCommon.mapNarration`: latest step whose ts ≤ segment end). **Raw audio is never persisted** — it lives in the panel until transcribed and dies with it; only transcript text becomes data (`step.narration`), flows into generation as spoken operator intent, and is called out explicitly in the audit. A `mic.html` helper tab handles the side panel's inability to show the permission prompt.
+
+### v1.3 addition: caption-on-capture
+
+Desktop generation was prefill-bound: N window-capture frames made an N-image request. The opt-in `captionOnCapture` setting moves that vision work off the critical path — `captionStep()` in `background.js` describes each frame with the configured model right after capture (one short vision request per frame, best-effort) and stores the sentence as `step.caption`. Captioned frames are excluded from generation attachments (`buildSopRequest`'s attach rule), the caption rides in the action log with an SOP-prompt rule marking its provenance, and the audit lists captioned steps explicitly. Failure degrades to exactly the pre-existing behavior: the frame attaches at generation. Net effect: desktop-heavy recordings generate as fast as web-only ones, and the generation request is text-only.
 
 ---
 

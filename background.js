@@ -35,6 +35,7 @@ async function getSettings() {
     customUrl: "",
     includeScreenshots: false,
     captureValues: false,
+    captionOnCapture: false,
     maxSteps: 150,
     transcribeUrl: "https://api.openai.com/v1/audio/transcriptions",
     transcribeModel: "whisper-1",
@@ -222,8 +223,47 @@ async function addDesktopStep({ shot, label, manual }) {
     if (await attachShot(step, blob)) {
       await persist();
       chrome.runtime.sendMessage({ evt: "sessionChanged" }).catch(() => {});
+      captionStep(step.id); // best-effort, fire-and-forget (no-op unless enabled)
     }
   }
+}
+
+// ── Caption-on-capture ──────────────────────────────────────────────────────
+// Optional: describe each desktop frame with the configured vision model the
+// moment it is captured, amortizing the vision cost across the recording
+// session. Captioned frames are NOT attached at generation (the caption
+// travels as text instead), so generation becomes text-only and fast.
+// Best-effort: any failure leaves the step uncaptioned and generation falls
+// back to attaching the frame, exactly as without this option.
+const CAPTION_PROMPT = `You describe one step of a recorded desktop procedure from a single screenshot. A red ring, when present, marks the click point. Output ONE concise imperative sentence (max 30 words) describing the action or state visible in the frame — e.g. "Click Save in the toolbar of the Orders window." No preamble, no quotes, no markdown.`;
+
+async function captionStep(stepId) {
+  try {
+    const st = await getSettings();
+    if (!st.captionOnCapture) return;
+    if (!st.apiKey && st.provider !== "custom") return;   // no endpoint configured — skip silently
+    if (st.provider === "custom" && !st.customUrl) return;
+
+    await hydrate();
+    let step = session.steps.find(s => s.id === stepId);
+    if (!step || !step.hasShot) return;
+    const data = await shotDataFor(step);
+    if (!data) return;
+
+    const shots = [{ n: step.n, data }];
+    const text = st.provider === "anthropic"
+      ? await callAnthropic(st, CAPTION_PROMPT, "Describe this step.", shots)
+      : await callOpenAI(st, CAPTION_PROMPT, "Describe this step.", shots);
+    const caption = String(text || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    if (!caption) return;
+
+    await hydrate();
+    step = session.steps.find(s => s.id === stepId); // session may have changed during the call
+    if (!step) return;
+    step.caption = caption;
+    await persist();
+    chrome.runtime.sendMessage({ evt: "sessionChanged" }).catch(() => {});
+  } catch (e) { /* caption is best-effort */ }
 }
 
 // Semantic desktop step from the native UIA companion.
@@ -503,6 +543,7 @@ function buildActionLog(steps) {
     url: s.url || undefined,
     note: s.note || undefined,
     narration: s.narration || undefined,
+    caption: (s.type === "desktop" && s.caption) || undefined, // vision caption written at capture time
     has_screenshot: stepHasShot(s)
   }));
 }
@@ -517,7 +558,7 @@ Rules:
 3. Bold every UI element name exactly as given in the action log. Do not invent, rename, or "correct" element labels.
 4. Where a step has "has_screenshot": true, place the token {{screenshot_N}} on its own line immediately after that step, where N is the step number. Use ONLY these tokens for images — never a URL, never a token for a step without a screenshot.
 5. Merge trivially-related actions into one instruction where it improves readability (e.g. typing into a field then pressing Enter), but keep every screenshot token you use tied to its correct step number.
-6. Steps with source "desktop-capture" have NO semantic label — the attached screenshot with the matching step number is the source of truth. Describe only the action or state that is clearly visible; if ambiguous, describe the visible state conservatively rather than guessing.
+6. Steps with source "desktop-capture" have NO semantic label. If such a step carries a "caption" field, it was written by a vision model from the frame at capture time — treat it as the step's description (its screenshot may not be attached). Otherwise the attached screenshot with the matching step number is the source of truth: describe only the action or state that is clearly visible; if ambiguous, describe conservatively rather than guessing.
 7. Infer Prerequisites from the pages and applications used (required system access, accounts). Be conservative — mark inferences as such.
 8. Use the operator's notes (the "note" fields) as authoritative context.
 9. The "narration" fields are the operator's spoken commentary transcribed during recording. Use them as authoritative intent and context — the "why" behind steps, prerequisites, warnings — but attribute nothing to the UI from them: element labels in the action log remain the only ground truth for what is on screen.`;
@@ -532,18 +573,21 @@ async function buildSopRequest(steps, userContext, st) {
   if (userContext) userText += `\n\nOPERATOR CONTEXT (purpose/audience):\n${userContext}`;
 
   // Privacy rule: web/UIA screenshots stay local unless opted in.
-  // Desktop-capture frames are the only meaning their steps have, so they
-  // are always attached when such steps exist.
-  const attach = (s) => stepHasShot(s) && (st.includeScreenshots || s.type === "desktop");
+  // Desktop-capture frames are the only meaning their steps have, so they are
+  // attached when such steps exist — UNLESS a capture-time caption already
+  // carries that meaning as text (caption-on-capture), in which case the
+  // frame stays local too and generation is text-only.
+  const attach = (s) => stepHasShot(s) &&
+    (st.includeScreenshots || (s.type === "desktop" && !s.caption));
   const shots = [];
   for (const s of steps.filter(attach)) {
     const data = await shotDataFor(s);
     if (data) shots.push({ n: s.n, data });
   }
 
-  const hasDesktop = steps.some(s => s.type === "desktop");
+  const hasDesktopFrames = steps.some(s => s.type === "desktop" && stepHasShot(s) && !s.caption);
   if (!st.includeScreenshots) {
-    userText += hasDesktop
+    userText += hasDesktopFrames
       ? `\n\n(Only desktop-capture frames are attached; browser screenshots exist locally and will be spliced in at export — still place {{screenshot_N}} tokens for every step with has_screenshot true.)`
       : `\n\n(Screenshots exist locally for the steps marked has_screenshot but are NOT attached; still place {{screenshot_N}} tokens per the rules — they will be spliced in locally.)`;
   }
@@ -588,7 +632,8 @@ function buildAutomationLog(steps) {
     window: (s.type === "uia" || s.type === "desktop") ? s.pageTitle : undefined,
     url: s.url || undefined,
     note: s.note || undefined,
-    narration: s.narration || undefined
+    narration: s.narration || undefined,
+    caption: (s.type === "desktop" && s.caption) || undefined
   }));
 }
 
@@ -853,6 +898,7 @@ async function buildAudit(target, userContext, recordingId, recordingIdB) {
     shotsAttached: req.shots.map(s => s.n),     // step numbers whose pixels would be sent
     maskedSteps: stats.maskedSteps,             // masked values: label only, value never captured
     narratedSteps: stats.narratedSteps,         // step numbers whose spoken-narration transcript is sent
+    captionedSteps: stats.captionedSteps,       // desktop frames captioned at capture — caption text sent, pixels stay local
     system: req.system,
     userText: req.userText,
     body                                        // exact request body, images redacted, no credentials

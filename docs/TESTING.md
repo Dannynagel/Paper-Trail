@@ -97,7 +97,13 @@ stub endpoints and fake media devices):
 3. **Diff**: record the same procedure before/after a real UI change;
    Compare; sanity-check relabeled vs added/removed classifications; generate
    the change summary and confirm it invents nothing beyond the entries.
-4. **Narration**: real mic — first 🎤 press in the side panel may open the
+4. **Caption-on-capture**: enable the option against a real vision model,
+   record a desktop window for a few state changes → 🖼→📝 captions appear
+   under the frames within seconds; run the SOP audit → captioned frames are
+   not attached and their captions appear in the user message; break the
+   endpoint mid-recording → those frames stay uncaptioned and generation
+   attaches them as before.
+5. **Narration**: real mic — first 🎤 press in the side panel may open the
    `mic.html` helper tab; allow, close, press again. Speak while performing
    3+ steps; verify each 🎙 transcript lands on the step it followed; test a
    wrong transcription URL → error with a working Retry button; confirm no

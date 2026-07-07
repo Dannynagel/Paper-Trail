@@ -78,6 +78,7 @@ async function openRecording(id) {
             <div class="page" title="${esc(step.url)}">${esc(step.pageTitle || step.url)}</div>
             ${step.masked ? `<div class="masked">value masked</div>` : ""}
             ${step.note ? `<div class="page">📝 ${esc(step.note)}</div>` : ""}
+            ${step.caption ? `<div class="caption">🖼→📝 <em>${esc(step.caption)}</em></div>` : ""}
             ${step.narration ? `<div class="narration">🎙 <em>${esc(step.narration)}</em></div>` : ""}
             ${srcByStep.has(step.id)
               ? `<img src="${srcByStep.get(step.id)}" alt="Step ${step.n} screenshot" loading="lazy">` : ""}

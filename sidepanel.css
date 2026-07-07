@@ -132,6 +132,12 @@ button.active-rec { border-color: var(--rec); color: var(--rec); }
 }
 .narration em { color: var(--muted); font-style: italic; }
 .narration button { padding: 0 5px; font-size: 9px; margin-left: 6px; }
+.step .caption, .caption {
+  margin-top: 6px; padding: 4px 8px; border-left: 2px solid var(--amber);
+  font-size: 11px; color: var(--muted); background: rgba(232, 184, 75, 0.05);
+  border-radius: 0 4px 4px 0;
+}
+.caption em { font-style: italic; }
 .step .note {
   width: 100%; margin-top: 6px; background: var(--ink); color: var(--text);
   border: 1px solid var(--line); border-radius: 4px; font: 11px var(--sans);

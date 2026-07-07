@@ -104,6 +104,17 @@ button { background: var(--accent); color: #05221E; border: 0; border-radius: 6p
 
   <fieldset>
     <legend>Capture</legend>
+    <div class="row">
+      <input type="checkbox" id="captionOnCapture">
+      <div>
+        <b>Caption desktop frames at capture</b>
+        <div class="hint">Each window-capture frame is described by your vision model the moment it is
+          captured, so its caption travels as text and generation becomes text-only and fast. Each frame is
+          sent to the model once at capture time instead of at generation time (desktop frames are sent
+          either way — this changes <i>when</i>, not <i>whether</i>). Requires the model endpoint to be
+          reachable while recording; if a caption fails, generation attaches the frame as before.</div>
+      </div>
+    </div>
     <label for="maxSteps">Max steps per session</label>
     <input type="text" id="maxSteps" inputmode="numeric" placeholder="150">
     <div class="hint">Screenshots are stored on disk (IndexedDB), so long sessions are fine; the ceiling guards against runaway recordings.</div>

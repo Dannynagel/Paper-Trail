@@ -98,6 +98,7 @@ function render() {
         ${step.shot ? `<img src="${step.shot}" alt="Step ${step.n} screenshot" loading="lazy">` :
           step.hasShot ? `<img data-shot-id="${step.id}" alt="Step ${step.n} screenshot" loading="lazy">` :
           (step.shotDropped ? `<div class="masked">screenshot removed</div>` : "")}
+        ${step.caption ? `<div class="caption">🖼→📝 <em>${esc(step.caption)}</em></div>` : ""}
         ${step.narration ? `<div class="narration">🎙 <em>${esc(step.narration)}</em>
           <button data-act="dropNarration" data-id="${step.id}" title="Remove narration">✕</button></div>` : ""}
         <textarea class="note" placeholder="Add note for the writer…" data-id="${step.id}">${esc(step.note)}</textarea>
@@ -650,7 +651,9 @@ Built locally on ${new Date(a.generatedAt).toLocaleString()}. Producing this aud
 
 - ${a.shotsCaptured.length} screenshot(s) exist locally for this recording; ${attached}
 - ${localOnly.length} stay on this machine and are spliced into exports locally
-- "Attach screenshots" setting: ${a.includeScreenshots ? "ON — browser screenshots are sent" : "OFF — only text leaves this machine (desktop-capture frames excepted)"}
+${(a.captionedSteps && a.captionedSteps.length)
+  ? `- ${a.captionedSteps.length} desktop frame(s) were captioned at capture (steps ${a.captionedSteps.join(", ")}) — the caption text below is sent; those frames stay local at generation time (each frame was sent to the same endpoint once, when captured)\n`
+  : ""}- "Attach screenshots" setting: ${a.includeScreenshots ? "ON — browser screenshots are sent" : "OFF — only text leaves this machine (uncaptioned desktop-capture frames excepted)"}
 
 ## Masked values
 

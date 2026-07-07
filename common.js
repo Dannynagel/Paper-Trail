@@ -173,7 +173,8 @@ const PTCommon = (() => {
     const maskedSteps = steps.filter(s => s.masked).map(s => ({ n: s.n, label: s.label }));
     const shots = steps.filter(s => s.shot || s.hasShot).map(s => s.n);
     const narratedSteps = steps.filter(s => s.narration).map(s => s.n);
-    return { maskedSteps, shotSteps: shots, narratedSteps, stepCount: steps.length };
+    const captionedSteps = steps.filter(s => s.type === "desktop" && s.caption).map(s => s.n);
+    return { maskedSteps, shotSteps: shots, narratedSteps, captionedSteps, stepCount: steps.length };
   }
 
   // Blob → data URL (panel/content contexts; the service worker has its own).

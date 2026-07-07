@@ -28,6 +28,8 @@ Press **🎤 Narrate** while recording (it starts the recording if idle) and tal
 
 These steps have no semantic labels, so their frames are attached at generation time — that's the one exception to the no-pixels default. Add a note to any frame whose meaning isn't obvious.
 
+**Caption desktop frames at capture** (options, off by default) changes *when* those pixels travel, not *whether*: each frame is described by your vision model the moment it's captured (a 🖼→📝 caption appears under the step), and generation then sends the caption text instead of the frame. Two effects: generation for desktop-heavy recordings becomes as fast as web-only ones (the vision work is amortized across the recording session, ~1–4 s per frame in the background), and the generation request is fully text-only. Requires the model endpoint to be reachable while recording; if a caption fails, that frame simply attaches at generation as before.
+
 ### Desktop apps — UIA companion (semantic)
 
 With the companion installed ([INSTALL.md §3](INSTALL.md#3-install-the-uia-companion-optional-windows)), click **⚡ UIA companion**. Desktop clicks arrive as real semantic steps — `Click **Apply** (button) — mmc` — with ring-annotated window screenshots, same privacy rules as web steps. Toggle it off to disconnect (the host process exits).
