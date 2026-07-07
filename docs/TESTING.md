@@ -77,7 +77,33 @@ reducer, and the audit stats used by the privacy report.
 4. **Audit** on a library entry audits that recording (not the live session).
 5. The audit works with no API key configured (it must never require credentials).
 
-## 5. Regressions to spot-check after any content.js change
+## 5. v1.2 — Multi-anchor, Playwright export, Diff, Narration
+
+Pure logic (`tests.html`): `anchorList` ordering/dedup/legacy, `diffSteps` +
+`summarizeDiff` classification cases, `mapNarration` timestamp attribution,
+`auditStats.narratedSteps`.
+
+Manual integration paths (the automated smoke harness covers the rest with
+stub endpoints and fake media devices):
+
+1. **Multi-anchor**: record on a page whose controls carry `data-testid`;
+   in DevTools rename an element's id → Verify grades amber with the
+   test-attribute anchor as the repair; Apply, re-verify green; confirm the
+   saved step's whole `anchors` object was replaced, not merged.
+2. **Playwright**: generate both targets against a real provider; run the
+   script (`node`) and the test (`npx playwright test`) against the live
+   site; confirm masked values are demanded as `PT_*` env vars and the
+   regression spec never clicks or types.
+3. **Diff**: record the same procedure before/after a real UI change;
+   Compare; sanity-check relabeled vs added/removed classifications; generate
+   the change summary and confirm it invents nothing beyond the entries.
+4. **Narration**: real mic — first 🎤 press in the side panel may open the
+   `mic.html` helper tab; allow, close, press again. Speak while performing
+   3+ steps; verify each 🎙 transcript lands on the step it followed; test a
+   wrong transcription URL → error with a working Retry button; confirm no
+   audio appears anywhere in IndexedDB (Application tab) or storage.
+
+## 6. Regressions to spot-check after any content.js change
 
 - Recording still captures clicks/inputs/selects/Enter/submit with correct labels.
 - The capture ripple still appears; masked fields stay masked.

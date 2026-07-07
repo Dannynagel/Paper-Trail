@@ -160,6 +160,16 @@ Four features added after 1.0, all built on the same premise: every recorded ste
 
 **Privacy Audit (`buildAudit` in `background.js`).** One click renders the *literal* request that generation would send — same body builders as the real calls, so the audit is the payload by construction — with image bytes replaced by size placeholders and credentials excluded, plus a summary of masked values and which screenshots stay local. Exports as `.md`/`.html`/`.json` for compliance sign-off.
 
+### v1.2 additions
+
+**Multi-anchor self-healing capture.** Each web step now records every independent anchor the element offers — test attribute, id, name/aria attribute, structural path — alongside the unchanged primary `selector` (anchors equal to the primary are omitted). `PTCommon.anchorList()` defines the single trust order (testAttr > id > attr > selector > css); legacy steps degrade to `[selector]`. Resolution tries the primary first (the only path that grades *found*); an alternate-anchor hit means the primary drifted and returns a fresh full anchor set so Verify's repair replaces everything at once (overwrite, never merge). Automation logs expose the alternates as `alt_selectors` fallback locator chains.
+
+**Playwright export.** Two new generation targets: `playwright` (runnable Node script with a `locOf()` fallback-chain helper over the recorded anchors, masked values as `PT_*` env vars) and `pwtest` (a read-only `@playwright/test` spec asserting each anchor still resolves — Verify Mode as a CI job).
+
+**Recording diff (`diff.js`, `PTCommon.diffSteps`).** LCS alignment of two recordings' ledgers on `type|kind|label` keys; gap pairs with matching type+kind and ≥ 0.3 token overlap classify as *relabeled*; unchanged pairs flag page/value/anchor changes. The report renders and exports locally; an optional LLM change-management summary sends only step text (never anchors or values) and is covered by the privacy audit like every other target.
+
+**Voice narration.** A 🎤 toggle records mic audio in the panel (MediaRecorder, webm/opus) and transcribes it through a user-configured OpenAI-compatible `/v1/audio/transcriptions` endpoint (`verbose_json` required). Segments attach to steps by timestamp (`PTCommon.mapNarration`: latest step whose ts ≤ segment end). **Raw audio is never persisted** — it lives in the panel until transcribed and dies with it; only transcript text becomes data (`step.narration`), flows into generation as spoken operator intent, and is called out explicitly in the audit. A `mic.html` helper tab handles the side panel's inability to show the permission prompt.
+
 ---
 
 ## 8. Known limits and roadmap
