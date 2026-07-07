@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 
-const DEFAULT_MODELS = { anthropic: "claude-sonnet-4-6", openai: "gpt-4o", custom: "" };
+const DEFAULT_MODELS = { anthropic: "claude-sonnet-4-6", openai: "gpt-4o", custom: "gemma4:12b-it-qat" };
 
 function syncProviderUI() {
   $("customBlock").hidden = $("provider").value !== "custom";

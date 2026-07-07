@@ -17,7 +17,7 @@ Field values are masked by default — steps read "Enter a value in **Field**" w
 
 ### Voice narration
 
-Press **🎤 Narrate** while recording (it starts the recording if idle) and talk through what you're doing — the *why*, prerequisites, warnings. When you stop, the audio is transcribed through the OpenAI-compatible Whisper endpoint configured in options (works with local Whisper servers), and each spoken segment attaches to the step it followed as a 🎙 row. Generated SOPs use narration as authoritative intent context. Privacy: the audio is sent once for transcription and **never stored** — only the transcript text becomes part of the recording, and the audit lists exactly which steps carry it. Keep the panel open while narrating; closing it drops the audio (never the steps). If the mic prompt doesn't appear, a helper tab opens to grant the permission.
+Press **🎤 Narrate** while recording (it starts the recording if idle) and talk through what you're doing — the *why*, prerequisites, warnings. When you stop, the audio is transcribed through the OpenAI-compatible Whisper endpoint configured in options (works with local Whisper servers), and each spoken segment attaches to the step it followed as a 🎙 row. Generated SOPs use narration as authoritative intent context. Privacy: the audio is sent once for transcription and **never stored** — only the transcript text becomes part of the recording, and the audit lists exactly which steps carry it. For a free local transcription server, see [INSTALL.md §2 — Fully local setup](INSTALL.md#fully-local-setup-free-models). Keep the panel open while narrating; closing it drops the audio (never the steps). If the mic prompt doesn't appear, a helper tab opens to grant the permission.
 
 ### Desktop apps — window-capture mode
 
@@ -57,7 +57,7 @@ The **note field** under each step is the highest-leverage input you have: notes
 2. Optionally add context (purpose, audience, system name) — it shapes the Title/Purpose/Scope sections.
 3. Click **Generate**. One API call; typical drafts return in seconds.
 
-What leaves the machine per target is detailed in [DESIGN.md §6](DESIGN.md#6-privacy--security-model); automation targets are always text-only.
+What leaves the machine per target is detailed in [DESIGN.md §6](DESIGN.md#6-privacy--security-model); automation targets are always text-only. For a zero-cost, fully local provider setup (Ollama + Gemma 4 12B QAT), see [INSTALL.md §2 — Fully local setup](INSTALL.md#fully-local-setup-free-models).
 
 ## 4. Editing and exporting
 

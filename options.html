@@ -42,7 +42,7 @@ button { background: var(--accent); color: #05221E; border: 0; border-radius: 6p
     <select id="provider">
       <option value="anthropic">Anthropic (Claude)</option>
       <option value="openai">OpenAI (GPT)</option>
-      <option value="custom">Custom OpenAI-compatible endpoint (Open WebUI / Azure OpenAI / vLLM)</option>
+      <option value="custom">Custom OpenAI-compatible endpoint (Ollama / LM Studio / Open WebUI / vLLM)</option>
     </select>
 
     <label for="apiKey">API key</label>
@@ -50,13 +50,15 @@ button { background: var(--accent); color: #05221E; border: 0; border-radius: 6p
     <div class="hint">Stored in chrome.storage.local on this machine only. Sent only to the endpoint below.</div>
 
     <label for="model">Model</label>
-    <input type="text" id="model" placeholder="claude-sonnet-4-6 / gpt-4o / your deployment name">
+    <input type="text" id="model" placeholder="claude-sonnet-4-6 / gpt-4o / gemma4:12b-it-qat">
 
     <div id="customBlock" hidden>
       <label for="customUrl">Chat completions URL</label>
-      <input type="text" id="customUrl" placeholder="https://openwebui.corp.example.com/api/chat/completions">
-      <div class="hint">Full URL of an OpenAI-compatible chat completions endpoint. For Open WebUI use
-        <code>/api/chat/completions</code>; Bearer auth is used with the key above.</div>
+      <input type="text" id="customUrl" placeholder="http://localhost:11434/v1/chat/completions (Ollama)">
+      <div class="hint">Full URL of an OpenAI-compatible chat completions endpoint — local Ollama / LM Studio
+        (leave the key blank), or Open WebUI at <code>/api/chat/completions</code> with Bearer auth.
+        <span class="warn">Ollama: raise the model's context window (e.g. <code>OLLAMA_CONTEXT_LENGTH=16384</code>) —
+        the default silently truncates long recordings.</span> See INSTALL.md for the free local stack.</div>
     </div>
   </fieldset>
 
@@ -86,8 +88,9 @@ button { background: var(--accent); color: #05221E; border: 0; border-radius: 6p
     <label for="transcribeUrl">Transcription URL</label>
     <input type="text" id="transcribeUrl" placeholder="https://api.openai.com/v1/audio/transcriptions">
     <div class="hint">Any OpenAI-compatible <code>/v1/audio/transcriptions</code> endpoint — OpenAI, Groq,
-      LocalAI, or a self-hosted faster-whisper server. Audio is sent here once for transcription and is
-      never stored; only the transcript text becomes part of the recording.
+      LocalAI, or a local Speaches / faster-whisper server
+      (e.g. <code>http://localhost:8000/v1/audio/transcriptions</code>, key blank). Audio is sent here once
+      for transcription and is never stored; only the transcript text becomes part of the recording.
       <span class="warn">Some self-hosted servers accept only wav/mp3 — Chrome records webm/opus.</span></div>
 
     <label for="transcribeModel">Transcription model</label>

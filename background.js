@@ -40,7 +40,11 @@ async function getSettings() {
     transcribeModel: "whisper-1",
     transcribeKey: ""
   });
-  if (!d.model) d.model = d.provider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4o";
+  if (!d.model) {
+    d.model = d.provider === "anthropic" ? "claude-sonnet-4-6"
+            : d.provider === "custom" ? "gemma4:12b-it-qat"   // Ollama-friendly local default
+            : "gpt-4o";
+  }
   return d;
 }
 

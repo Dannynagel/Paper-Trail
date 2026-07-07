@@ -42,11 +42,33 @@ Open the side panel → **⚙** (or right-click the icon → Options):
 
 **Custom endpoint examples:**
 
+- Ollama (local): `http://localhost:11434/v1/chat/completions` — no key needed
+- LM Studio (local): `http://localhost:1234/v1/chat/completions`
 - Open WebUI: `https://openwebui.corp.example.com/api/chat/completions`
 - Azure OpenAI via Open WebUI: same URL — Open WebUI proxies the Azure deployment you configured in it
 - vLLM / LiteLLM: `https://host:port/v1/chat/completions`
 
-The API key is stored in `chrome.storage.local` on this machine and attached only to requests to the endpoint you configured.
+The API key is stored in `chrome.storage.local` on this machine and attached only to requests to the endpoint you configured (the Authorization header is omitted entirely when the key is blank, as with local Ollama).
+
+### Fully local setup (free models)
+
+Everything Paper Trail does — SOPs with screenshots, automation scripts, diff summaries, voice narration — can run against free, local, Apache-2.0 models. Recommended stack:
+
+**Generation — Gemma 4 12B QAT via Ollama:**
+
+1. Install [Ollama](https://ollama.com), then: `ollama pull gemma4:12b-it-qat` (~7.2 GB; text + images, so screenshots-on mode and desktop-capture frames work).
+2. In Paper Trail options: Provider **Custom**, URL `http://localhost:11434/v1/chat/completions`, model `gemma4:12b-it-qat`, key blank.
+3. **Raise the context window.** Ollama allocates a small context by default and silently truncates what doesn't fit — a long recording (150 multi-anchor steps ≈ 10–15k tokens) would lose steps mid-prompt. Set `OLLAMA_CONTEXT_LENGTH=16384` (or a model-level `num_ctx` parameter) before serving. Use **🔍 Preview what will be sent** to see the exact payload size for a recording.
+4. For automation targets (PowerShell/Playwright), a code-tuned model such as `qwen3:14b` scores noticeably better than a 12B generalist — pull it too and swap the model field when generating scripts. It is text-only, so switch back for screenshots-on SOPs.
+
+**Narration — whisper-large-v3 via a local Whisper server:**
+
+Gemma's chat-audio input is not usable here: narration attribution needs *segment timestamps* from an OpenAI-compatible `/v1/audio/transcriptions` endpoint (`response_format=verbose_json`), which is a Whisper-family feature. Run one of:
+
+- [Speaches](https://speaches.ai) (formerly faster-whisper-server) — `http://localhost:8000/v1/audio/transcriptions`
+- whisper.cpp's server, or LocalAI's transcription endpoint
+
+Set the transcription URL in options accordingly (model `whisper-1`-compatible naming per your server; key blank for local). Chrome records webm/opus — Speaches and whisper.cpp accept it; some minimal servers want wav/mp3. Cloud alternative: Groq's free tier serves `whisper-large-v3` on the same API shape.
 
 **Privacy defaults** (both off; read before enabling):
 
