@@ -7,20 +7,31 @@
   if (window.__paperTrailLoaded) return;
   window.__paperTrailLoaded = true;
 
-  let recording = false;
+  // One mode machine, one listener set: "idle" | "recording" | "walkthrough".
+  // Recording is owned by the broadcast state; walkthrough is owned by
+  // tab-targeted walkArm/walkDisarm messages and never clobbered by broadcasts.
+  let mode = "idle";
   let captureValues = false;
   let lastClickTs = 0;
 
   // ── Recording state sync ────────────────────────────────────────────────
   chrome.runtime.sendMessage({ cmd: "isRecording" }, (resp) => {
     if (chrome.runtime.lastError) return;
-    if (resp) { recording = !!resp.recording; captureValues = !!resp.captureValues; }
+    if (resp) {
+      if (resp.recording) mode = "recording";
+      captureValues = !!resp.captureValues;
+    }
   });
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg) return;
     if (msg.evt === "recordingState") {
-      recording = !!msg.recording;
+      if (msg.recording) {
+        if (mode === "walkthrough") walkCleanup();
+        mode = "recording";
+      } else if (mode === "recording") {
+        mode = "idle";
+      }
       captureValues = !!msg.captureValues;
     } else if (msg.cmd === "probeStep") {
       const r = resolveStep(msg.step || {});
@@ -30,6 +41,16 @@
         matchCount: r.matchCount,
         frameUrl: location.href
       });
+    } else if (msg.cmd === "walkArm") {
+      sendResponse(walkArm(msg.step || {}));
+    } else if (msg.cmd === "walkDisarm") {
+      walkCleanup();
+      sendResponse({ ok: true });
+    } else if (msg.cmd === "walkFindByText") {
+      sendResponse({ count: walkHighlightByText(msg.label || "") });
+    } else if (msg.cmd === "walkPing") {
+      walkLastPing = Date.now();
+      sendResponse({ ok: true });
     }
   });
 
@@ -166,6 +187,133 @@
     return { status: "missing", el: null, matchedSelector: "", matchCount: 0 };
   }
 
+  // ── Guided walkthrough (arm → highlight → detect the user's action) ─────
+  let armedStep = null, armedEl = null;
+  let guideBox = null, guideTip = null;
+  let walkLastPing = 0, walkWatch = null, repoQueued = false;
+
+  function walkArm(step) {
+    walkCleanup();
+    const r = resolveStep(step);
+    if (!r.el) return { armed: false, status: r.status, matchCount: r.matchCount };
+
+    armedStep = step;
+    armedEl = r.el;
+    mode = "walkthrough";
+
+    guideBox = document.createElement("div");
+    guideBox.className = "paper-trail-guide-box";
+    guideTip = document.createElement("div");
+    guideTip.className = "paper-trail-guide-tip";
+    guideTip.textContent = `${step.n ? step.n + ". " : ""}${String(step.text || "").replace(/\*\*/g, "")}`;
+    document.documentElement.appendChild(guideBox);
+    document.documentElement.appendChild(guideTip);
+    placeGuide();
+    try { armedEl.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+
+    window.addEventListener("scroll", repositionGuide, true);
+    window.addEventListener("resize", repositionGuide);
+    walkLastPing = Date.now();
+    // Deadman switch: if the side panel stops pinging (closed, crashed),
+    // clear the overlay rather than haunting the page. Also re-glue the box
+    // through layout shifts the scroll/resize events don't cover.
+    walkWatch = setInterval(() => {
+      if (Date.now() - walkLastPing > 20000) walkCleanup();
+      else repositionGuide();
+    }, 1000);
+
+    return { armed: true, via: r.status === "found" ? "selector" : "label" };
+  }
+
+  function walkCleanup() {
+    if (guideBox) guideBox.remove();
+    if (guideTip) guideTip.remove();
+    guideBox = guideTip = null;
+    armedStep = null;
+    armedEl = null;
+    window.removeEventListener("scroll", repositionGuide, true);
+    window.removeEventListener("resize", repositionGuide);
+    if (walkWatch) { clearInterval(walkWatch); walkWatch = null; }
+    if (mode === "walkthrough") mode = "idle";
+  }
+
+  function repositionGuide() {
+    if (repoQueued) return;
+    repoQueued = true;
+    requestAnimationFrame(() => { repoQueued = false; placeGuide(); });
+  }
+
+  function placeGuide() {
+    if (!guideBox || !armedEl || !armedEl.isConnected) return;
+    const r = armedEl.getBoundingClientRect();
+    guideBox.style.left = (r.left + scrollX - 4) + "px";
+    guideBox.style.top = (r.top + scrollY - 4) + "px";
+    guideBox.style.width = (r.width + 8) + "px";
+    guideBox.style.height = (r.height + 8) + "px";
+    guideTip.style.left = Math.max(4, r.left + scrollX) + "px";
+    const above = r.top + scrollY - guideTip.offsetHeight - 12;
+    guideTip.style.top = (above > scrollY ? above : r.bottom + scrollY + 12) + "px";
+  }
+
+  // Did this event complete the armed step? Identity first, then selector,
+  // then label+kind — the same anchors, in decreasing order of trust.
+  function checkWalkMatch(e, evType) {
+    if (!armedStep) return;
+    const t = armedStep.type;
+    const typeOk =
+      (evType === "click" && t === "click") ||
+      (evType === "change" && (t === "input" || t === "select")) ||
+      (evType === "key" && t === "key");
+    if (!typeOk) return;
+
+    const raw = e.target;
+    const el = raw.closest ? (raw.closest(INTERACTIVE) || raw) : raw;
+    let via = "";
+    if (armedEl && (raw === armedEl || el === armedEl ||
+        (armedEl.contains && armedEl.contains(raw)) ||
+        (el.contains && el.contains(armedEl)))) {
+      via = "element";
+    }
+    if (!via && armedStep.selector) {
+      try { if (el.matches && el.matches(armedStep.selector)) via = "selector"; } catch (err) {}
+    }
+    if (!via) {
+      const d = describe(raw);
+      if (PTCommon.labelMatches(d.label, armedStep.label) &&
+          (!armedStep.kind || !d.kind || d.kind === armedStep.kind)) via = "label";
+    }
+    if (!via) return;
+
+    const stepId = armedStep.id;
+    if (evType === "click" && e.clientX) ripple(e.clientX, e.clientY);
+    walkCleanup();
+    mode = "walkthrough"; // stay in walkthrough until the panel disarms or re-arms
+    try { chrome.runtime.sendMessage({ evt: "walkStepDone", stepId, via }); } catch (err) {}
+  }
+
+  // Degraded "show me" mode for stale anchors: flash everything whose label
+  // contains the recorded text.
+  function walkHighlightByText(label) {
+    const want = PTCommon.normLabel(label);
+    if (!want) return 0;
+    let count = 0;
+    for (const c of document.querySelectorAll(INTERACTIVE)) {
+      if (count >= 12) break;
+      if (!isVisible(c)) continue;
+      if (PTCommon.normLabel(describe(c).label).includes(want)) {
+        c.classList.add("paper-trail-text-hit");
+        count++;
+      }
+    }
+    if (count) setTimeout(() => {
+      document.querySelectorAll(".paper-trail-text-hit")
+        .forEach(x => x.classList.remove("paper-trail-text-hit"));
+    }, 6000);
+    return count;
+  }
+
+  window.addEventListener("pagehide", walkCleanup);
+
   function post(action) {
     try {
       chrome.runtime.sendMessage({
@@ -194,7 +342,8 @@
 
   // ── Event listeners (capture phase, so SPAs can't swallow them) ─────────
   document.addEventListener("click", (e) => {
-    if (!recording) return;
+    if (mode === "walkthrough") { checkWalkMatch(e, "click"); return; }
+    if (mode !== "recording") return;
     if (e.clientX === 0 && e.clientY === 0 && !e.detail) return; // synthetic
     const now = Date.now();
     if (now - lastClickTs < 150) return; // double-fire guard
@@ -213,7 +362,8 @@
   }, true);
 
   document.addEventListener("change", (e) => {
-    if (!recording) return;
+    if (mode === "walkthrough") { checkWalkMatch(e, "change"); return; }
+    if (mode !== "recording") return;
     const el = e.target;
     const tag = (el.tagName || "").toLowerCase();
     if (!/input|select|textarea/.test(tag)) return;
@@ -247,19 +397,20 @@
   }, true);
 
   document.addEventListener("submit", (e) => {
-    if (!recording) return;
+    if (mode !== "recording") return;
     const f = e.target;
     const name = clean(f.getAttribute("aria-label") || f.name || f.id || "form", 60);
     post({ type: "submit", label: name, kind: "form", x: 0, y: 0 });
   }, true);
 
   document.addEventListener("keydown", (e) => {
-    if (!recording) return;
     if (e.key !== "Enter") return;
     const el = e.target;
     const tag = (el.tagName || "").toLowerCase();
     if (tag !== "input" && tag !== "textarea") return;
     if (tag === "textarea" && !e.ctrlKey) return; // Enter in textarea is just a newline
+    if (mode === "walkthrough") { checkWalkMatch(e, "key"); return; }
+    if (mode !== "recording") return;
     post({
       type: "key",
       label: labelForInput(el),

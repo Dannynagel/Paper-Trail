@@ -19,6 +19,10 @@ function verifiableStep(s) {
 
 async function startVerify(recId) {
   if (verifyRun) return;
+  if (typeof walk !== "undefined" && walk) {
+    alert("A walkthrough is in progress — end it first.");
+    return;
+  }
   if (currentSession.recording) {
     alert("Stop recording before running Verify.");
     return;

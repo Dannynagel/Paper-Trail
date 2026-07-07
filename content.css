@@ -17,3 +17,37 @@
 @media (prefers-reduced-motion: reduce) {
   .paper-trail-ripple { animation: none; opacity: 0; }
 }
+
+/* Paper Trail — guided walkthrough overlay */
+.paper-trail-guide-box {
+  position: absolute;
+  z-index: 2147483646;
+  border: 2px solid #4FD6C4;
+  border-radius: 6px;
+  pointer-events: none;
+  box-shadow: 0 0 0 4px rgba(79, 214, 196, 0.25);
+  animation: paper-trail-guide-pulse 1.6s ease-in-out infinite;
+}
+@keyframes paper-trail-guide-pulse {
+  50% { box-shadow: 0 0 0 9px rgba(79, 214, 196, 0.10); }
+}
+.paper-trail-guide-tip {
+  position: absolute;
+  z-index: 2147483647;
+  background: #161B22;
+  color: #DEE4EC;
+  border: 1px solid #4FD6C4;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  max-width: 320px;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.paper-trail-text-hit {
+  outline: 3px solid #E8B84B !important;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .paper-trail-guide-box { animation: none; }
+}

@@ -91,6 +91,10 @@ button.active-rec { border-color: var(--rec); color: var(--rec); }
   font: 10px var(--mono); word-break: break-all;
 }
 
+/* ── Walkthrough ─────────────────────────────────────────── */
+.walk-card { border-color: var(--accent); margin: 8px; }
+.walk-state { margin-top: 6px; }
+
 .status {
   font: 11px var(--mono); color: var(--muted);
   padding: 8px 2px; letter-spacing: 0.03em;
