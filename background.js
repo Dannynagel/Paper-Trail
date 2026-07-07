@@ -416,6 +416,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         break;
       }
+      case "auditPayload": {
+        try {
+          const audit = await buildAudit(msg.target || "sop", msg.context || "", msg.recordingId);
+          sendResponse({ ok: true, audit });
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e.message || e) });
+        }
+        break;
+      }
       default: sendResponse({ ok: false });
     }
   })();
@@ -473,10 +482,9 @@ Rules:
 7. Infer Prerequisites from the pages and applications used (required system access, accounts). Be conservative — mark inferences as such.
 8. Use the operator's notes (the "note" fields) as authoritative context.`;
 
-async function generateSOP(steps, userContext) {
-  const st = await getSettings();
-  if (!st.apiKey && st.provider !== "custom") throw new Error("No API key configured. Open extension options.");
-  if (st.provider === "custom" && !st.customUrl) throw new Error("No custom endpoint URL configured. Open extension options.");
+// Everything generateSOP would send, without sending it. The privacy audit
+// renders this same object, so the audit is the real payload by construction.
+async function buildSopRequest(steps, userContext, st) {
   if (!steps.length) throw new Error("No steps recorded yet.");
 
   const log = JSON.stringify(buildActionLog(steps), null, 1);
@@ -500,10 +508,20 @@ async function generateSOP(steps, userContext) {
       : `\n\n(Screenshots exist locally for the steps marked has_screenshot but are NOT attached; still place {{screenshot_N}} tokens per the rules — they will be spliced in locally.)`;
   }
 
-  if (st.provider === "anthropic") {
-    return callAnthropic(st, userText, shots);
-  }
-  return callOpenAI(st, userText, shots);
+  return { system: SYSTEM_PROMPT, userText, shots };
+}
+
+function requireEndpoint(st) {
+  if (!st.apiKey && st.provider !== "custom") throw new Error("No API key configured. Open extension options.");
+  if (st.provider === "custom" && !st.customUrl) throw new Error("No custom endpoint URL configured. Open extension options.");
+}
+
+async function generateSOP(steps, userContext) {
+  const st = await getSettings();
+  requireEndpoint(st);
+  const req = await buildSopRequest(steps, userContext, st);
+  if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
+  return callOpenAI(st, req.system, req.userText, req.shots);
 }
 
 // ── RPA / automation generation (text-only: no pixels ever leave) ──────────
@@ -558,10 +576,9 @@ Rules:
 6. Be conservative and exact — a developer should be able to build the bot without re-recording.`
 };
 
-async function generateAutomation(steps, userContext, target) {
-  const st = await getSettings();
-  if (!st.apiKey && st.provider !== "custom") throw new Error("No API key configured. Open extension options.");
-  if (st.provider === "custom" && !st.customUrl) throw new Error("No custom endpoint URL configured. Open extension options.");
+// Build-only counterpart for automation targets. Text-only by design:
+// anchors are the payload, never pixels.
+function buildAutomationRequest(steps, userContext, target) {
   if (!steps.length) throw new Error("No steps recorded yet.");
   const sys = AUTOMATION_PROMPTS[target];
   if (!sys) throw new Error("Unknown automation target: " + target);
@@ -570,48 +587,41 @@ async function generateAutomation(steps, userContext, target) {
   let userText = `Convert this recorded session into ${target === "powershell" ? "a PowerShell automation script" : "an Automation Anywhere A360 build sheet"}.\n\nACTION LOG:\n${log}`;
   if (userContext) userText += `\n\nOPERATOR CONTEXT:\n${userContext}`;
 
-  // Automation generation is always text-only — anchors are the payload, never pixels.
-  const saved = SYSTEM_PROMPT_OVERRIDE;
-  SYSTEM_PROMPT_OVERRIDE = sys;
-  try {
-    if (st.provider === "anthropic") return await callAnthropic(st, userText, []);
-    return await callOpenAI(st, userText, []);
-  } finally {
-    SYSTEM_PROMPT_OVERRIDE = saved;
-  }
+  return { system: sys, userText, shots: [] };
 }
 
-let SYSTEM_PROMPT_OVERRIDE = null;
-function activeSystemPrompt() { return SYSTEM_PROMPT_OVERRIDE || SYSTEM_PROMPT; }
+async function generateAutomation(steps, userContext, target) {
+  const st = await getSettings();
+  requireEndpoint(st);
+  const req = buildAutomationRequest(steps, userContext, target);
+  if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
+  return callOpenAI(st, req.system, req.userText, req.shots);
+}
 
-async function callAnthropic(st, userText, shots) {
+// ── Provider transport (bodies shared with the privacy audit) ──────────────
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+
+function endpointFor(st) {
+  if (st.provider === "anthropic") return ANTHROPIC_URL;
+  return st.provider === "custom" ? st.customUrl : OPENAI_URL;
+}
+
+function anthropicBody(st, system, userText, shots) {
   const content = [{ type: "text", text: userText }];
   for (const s of shots) {
     content.push({ type: "text", text: `Screenshot for step ${s.n}:` });
     content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: s.data } });
   }
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": st.apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
-    body: JSON.stringify({
-      model: st.model,
-      max_tokens: 4000,
-      system: activeSystemPrompt(),
-      messages: [{ role: "user", content }]
-    })
-  });
-  if (!resp.ok) throw new Error(`Anthropic API ${resp.status}: ${await resp.text()}`);
-  const data = await resp.json();
-  return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+  return {
+    model: st.model,
+    max_tokens: 4000,
+    system,
+    messages: [{ role: "user", content }]
+  };
 }
 
-async function callOpenAI(st, userText, shots) {
-  const url = st.provider === "custom" ? st.customUrl : "https://api.openai.com/v1/chat/completions";
+function openaiBody(st, system, userText, shots) {
   const content = shots.length
     ? [{ type: "text", text: userText },
        ...shots.flatMap(s => ([
@@ -619,26 +629,93 @@ async function callOpenAI(st, userText, shots) {
          { type: "image_url", image_url: { url: `data:image/jpeg;base64,${s.data}` } }
        ]))]
     : userText;
+  return {
+    model: st.model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content }
+    ]
+  };
+}
 
+async function callAnthropic(st, system, userText, shots) {
+  const resp = await fetch(ANTHROPIC_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": st.apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify(anthropicBody(st, system, userText, shots))
+  });
+  if (!resp.ok) throw new Error(`Anthropic API ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+}
+
+async function callOpenAI(st, system, userText, shots) {
   const headers = { "content-type": "application/json" };
   if (st.apiKey) headers["Authorization"] = `Bearer ${st.apiKey}`;
 
-  const resp = await fetch(url, {
+  const resp = await fetch(endpointFor(st), {
     method: "POST",
     headers,
-    body: JSON.stringify({
-      model: st.model,
-      messages: [
-        { role: "system", content: activeSystemPrompt() },
-        { role: "user", content }
-      ]
-    })
+    body: JSON.stringify(openaiBody(st, system, userText, shots))
   });
   if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`);
   const data = await resp.json();
   const c = data.choices && data.choices[0] && data.choices[0].message.content;
   if (Array.isArray(c)) return c.map(p => p.text || "").join("");
   return c || "";
+}
+
+// ── Privacy audit: the literal request, minus pixels and credentials ───────
+function redactImagesInBody(body) {
+  const kb = (b64) => Math.max(1, Math.round(b64.length * 3 / 4096));
+  let redacted = 0;
+  for (const m of body.messages || []) {
+    if (!Array.isArray(m.content)) continue;
+    for (const item of m.content) {
+      if (item.type === "image" && item.source && item.source.data) {
+        item.source = Object.assign({}, item.source,
+          { data: `[[ ${kb(item.source.data)} KB JPEG omitted from this audit — never sent when screenshots are off ]]` });
+        redacted++;
+      } else if (item.type === "image_url" && item.image_url && item.image_url.url) {
+        item.image_url = { url: `[[ ${kb(item.image_url.url)} KB JPEG omitted from this audit ]]` };
+        redacted++;
+      }
+    }
+  }
+  return redacted;
+}
+
+async function buildAudit(target, userContext, recordingId) {
+  const steps = await resolveSteps(recordingId);
+  const st = await getSettings();
+  const req = target === "sop"
+    ? await buildSopRequest(steps, userContext, st)
+    : buildAutomationRequest(steps, userContext, target);
+  const body = st.provider === "anthropic"
+    ? anthropicBody(st, req.system, req.userText, req.shots)
+    : openaiBody(st, req.system, req.userText, req.shots);
+  redactImagesInBody(body);
+  const stats = PTCommon.auditStats(steps);
+  return {
+    generatedAt: Date.now(),
+    target,
+    provider: st.provider,
+    model: st.model,
+    endpoint: endpointFor(st) || "(no custom endpoint configured)",
+    includeScreenshots: !!st.includeScreenshots,
+    stepCount: stats.stepCount,
+    shotsCaptured: stats.shotSteps,             // step numbers that have a local screenshot
+    shotsAttached: req.shots.map(s => s.n),     // step numbers whose pixels would be sent
+    maskedSteps: stats.maskedSteps,             // masked values: label only, value never captured
+    system: req.system,
+    userText: req.userText,
+    body                                        // exact request body, images redacted, no credentials
+  };
 }
 
 // Keep badge accurate across worker restarts

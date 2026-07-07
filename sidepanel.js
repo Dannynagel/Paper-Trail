@@ -439,9 +439,13 @@ function showResult() {
   $("editor").hidden = true;
   $("preview").hidden = false;
   const isScript = currentTarget === "powershell";
+  const isAudit = currentTarget === "audit";
   $("result").querySelector(".result-bar span").textContent =
-    isScript ? "PowerShell draft" : (currentTarget === "aa" ? "AA build sheet" : "Draft");
+    isScript ? "PowerShell draft" :
+    currentTarget === "aa" ? "AA build sheet" :
+    isAudit ? "Privacy audit" : "Draft";
   $("btnDlPs1").hidden = !isScript;
+  $("btnDlJson").hidden = !isAudit;
   $("btnDlMd").hidden = isScript;
   $("btnDlHtml").hidden = isScript;
   $("preview").innerHTML = isScript
@@ -449,6 +453,94 @@ function showResult() {
     : mdToHtml(spliceImages(currentMarkdown));
   $("result").scrollIntoView({ behavior: "smooth" });
 }
+
+// ── Privacy audit — the exact payload, built locally, never sent ───────────
+let lastAudit = null;
+
+async function startAudit(recordingId) {
+  const gs = $("genStatus");
+  gs.hidden = false; gs.className = "status"; gs.textContent = "Building audit locally…";
+  const resp = await send({
+    cmd: "auditPayload",
+    target: $("genTarget").value,
+    context: $("context").value.trim(),
+    recordingId
+  });
+  if (!resp || !resp.ok) {
+    gs.className = "status err";
+    gs.textContent = "Audit failed: " + (resp ? resp.error : "no response");
+    return;
+  }
+  gs.hidden = true;
+  lastAudit = resp.audit;
+  currentTarget = "audit";
+  currentMarkdown = auditMarkdown(resp.audit);
+  spliceMap = new Map(); // the audit never embeds pixels
+  showResult();
+}
+
+function auditMarkdown(a) {
+  const localOnly = a.shotsCaptured.filter(n => !a.shotsAttached.includes(n));
+  const masked = a.maskedSteps.length
+    ? a.maskedSteps.map(m => `- Step ${m.n}: **${m.label}** — value never captured; the log says only that a value was entered`).join("\n")
+    : "- None recorded";
+  const attached = a.shotsAttached.length
+    ? `${a.shotsAttached.length} would be attached to the request (steps ${a.shotsAttached.join(", ")})`
+    : "none would be attached to the request";
+  const targetName = a.target === "sop" ? "SOP document" :
+    a.target === "powershell" ? "PowerShell automation" : "Automation Anywhere build sheet";
+
+  return `# Privacy Audit — what leaves this machine
+
+Built locally on ${new Date(a.generatedAt).toLocaleString()}. Producing this audit sent nothing anywhere.
+
+## Destination
+
+- Output type: ${targetName}
+- Provider: ${a.provider}
+- Model: ${a.model}
+- Endpoint: ${a.endpoint}
+
+## Screenshots
+
+- ${a.shotsCaptured.length} screenshot(s) exist locally for this recording; ${attached}
+- ${localOnly.length} stay on this machine and are spliced into exports locally
+- "Attach screenshots" setting: ${a.includeScreenshots ? "ON — browser screenshots are sent" : "OFF — only text leaves this machine (desktop-capture frames excepted)"}
+
+## Masked values
+
+${masked}
+
+## Credentials
+
+- The API key travels only as a request header to the endpoint above; it is not part of the body and is excluded from this audit.
+
+## System prompt (sent verbatim)
+
+\`\`\`
+${a.system}
+\`\`\`
+
+## User message (sent verbatim)
+
+\`\`\`
+${a.userText}
+\`\`\`
+
+## Exact request body (images redacted)
+
+\`\`\`json
+${JSON.stringify(a.body, null, 2)}
+\`\`\`
+`;
+}
+
+$("btnAudit").addEventListener("click", () =>
+  startAudit(activeRecording ? activeRecording.id : undefined));
+
+$("btnDlJson").addEventListener("click", () => {
+  if (lastAudit) download("Privacy_Audit.json", JSON.stringify(lastAudit, null, 2), "application/json");
+});
 
 $("btnEdit").addEventListener("click", () => {
   const ed = $("editor"), pv = $("preview");

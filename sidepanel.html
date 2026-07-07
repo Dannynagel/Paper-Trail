@@ -56,6 +56,7 @@
     </select>
     <textarea id="context" rows="2" placeholder="Optional context: purpose, audience, system name…"></textarea>
     <button id="btnGenerate" class="primary wide">Generate SOP</button>
+    <button id="btnAudit" class="ghost wide" title="Build the exact request locally — nothing is sent anywhere">🔍 Preview what will be sent</button>
     <div id="genStatus" class="status" hidden></div>
   </section>
 
@@ -68,6 +69,7 @@
         <button id="btnDlMd" class="ghost">.md</button>
         <button id="btnDlHtml" class="ghost">.html</button>
         <button id="btnDlPs1" class="ghost" hidden>.ps1</button>
+        <button id="btnDlJson" class="ghost" hidden>.json</button>
       </div>
     </div>
     <textarea id="editor" hidden></textarea>
