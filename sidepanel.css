@@ -60,6 +60,22 @@ button.active-rec { border-color: var(--rec); color: var(--rec); }
 
 .status.desk { color: var(--accent); }
 
+/* ── Tabs (Recorder / Library) ───────────────────────────── */
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.tabs button {
+  background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  font: 600 11px var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted); padding: 6px 10px;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── Library ─────────────────────────────────────────────── */
+.lib-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.lib-actions button { padding: 3px 8px; font-size: 10.5px; }
+.lib-detail { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.lib-detail .lib-steps { padding: 8px; }
+
 .status {
   font: 11px var(--mono); color: var(--muted);
   padding: 8px 2px; letter-spacing: 0.03em;

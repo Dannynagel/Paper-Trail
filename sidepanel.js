@@ -3,6 +3,8 @@
 const $ = (id) => document.getElementById(id);
 let currentSession = { recording: false, steps: [] };
 let currentMarkdown = "";
+let activeRecording = null;    // saved recording used as the generation source (null = live session)
+let spliceMap = new Map();     // step number -> screenshot data URL, snapshotted at generation time
 
 // ── Messaging helpers ──────────────────────────────────────────────────────
 const send = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, res));
@@ -43,6 +45,7 @@ function render() {
   rec.textContent = s.recording ? "■ Stop recording" : "● Start recording";
   rec.classList.toggle("recording", s.recording);
   $("scanline").hidden = !s.recording;
+  $("btnSave").disabled = s.recording || !s.steps.length;
 
   const st = $("status");
   st.className = "status" + (s.recording ? " rec" : "");
@@ -100,6 +103,76 @@ $("btnClear").addEventListener("click", async () => {
 });
 
 $("btnOptions").addEventListener("click", () => chrome.runtime.openOptionsPage());
+
+// ── Tabs (Recorder / Library) ──────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll(".tabs button").forEach(b =>
+    b.classList.toggle("active", b.dataset.tab === tab));
+  $("tab-recorder").hidden = tab !== "recorder";
+  $("tab-library").hidden = tab !== "library";
+  if (tab === "library" && typeof renderLibrary === "function") renderLibrary();
+}
+document.querySelectorAll(".tabs button").forEach(btn =>
+  btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
+
+// ── Save session to library (archives: session moves out of the recorder) ──
+$("btnSave").addEventListener("click", async () => {
+  const steps = currentSession.steps;
+  if (!steps.length || currentSession.recording) return;
+  const first = steps.find(s => s.pageTitle);
+  const def = `${(first && first.pageTitle) || "Recording"} — ${new Date().toLocaleDateString()}`;
+  const title = prompt("Save recording to library as:\n(The recorder ledger is cleared after saving.)", def);
+  if (title === null) return;
+
+  const recId = crypto.randomUUID();
+  const rec = {
+    id: recId,
+    title: title.trim() || def,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    stepCount: steps.length,
+    urlHosts: [...new Set(steps.map(s => PTCommon.urlHost(s.url)).filter(Boolean))].slice(0, 5),
+    source: steps.every(s => s.type === "uia" || s.type === "desktop") ? "desktop"
+          : steps.some(s => s.type === "uia" || s.type === "desktop") ? "mixed" : "web",
+    steps: steps.map(s => {
+      const copy = Object.assign({}, s, { shot: null, hasShot: !!(s.shot || s.hasShot) });
+      return copy;
+    })
+  };
+
+  // Persist shots: inline data URLs become Blobs; IDB-resident live shots are
+  // reassigned to the new recording without copying bytes.
+  for (const s of steps) {
+    if (s.shot) {
+      const blob = await (await fetch(s.shot)).blob();
+      await PTDB.putShot({ stepId: s.id, recId, blob });
+    }
+  }
+  await PTDB.reassignShots(PTDB.LIVE_REC_ID, recId);
+  await PTDB.saveRecording(rec);
+
+  await send({ cmd: "clear" });
+  refresh();
+  switchTab("library");
+  const ls = $("libStatus");
+  ls.textContent = `Saved ✓ — “${rec.title}”`;
+  setTimeout(() => { ls.textContent = "Library — saved recordings live in this browser profile only."; }, 3000);
+});
+
+// ── Generation source (live session vs a saved recording) ─────────────────
+function setGenSource(rec) {
+  activeRecording = rec;
+  const el = $("genSource");
+  if (rec) {
+    el.hidden = false;
+    el.innerHTML = `SOURCE ► ${esc(rec.title)} (${rec.steps.length} steps) ` +
+      `<button id="btnGenSourceClear" class="ghost" style="padding:1px 6px;font-size:10px">✕ back to live</button>`;
+    $("btnGenSourceClear").addEventListener("click", () => setGenSource(null));
+  } else {
+    el.hidden = true;
+    el.innerHTML = "";
+  }
+}
 
 // ── Window-capture mode (desktop apps, vision-based) ───────────────────────
 // getDisplayMedia lets the user pick ANY window. We sample the stream at
@@ -293,7 +366,12 @@ $("btnGenerate").addEventListener("click", async () => {
   gs.hidden = false; gs.className = "status"; gs.textContent = "Generating…";
 
   const target = $("genTarget").value;
-  const resp = await send({ cmd: "generate", context: $("context").value.trim(), target });
+  const resp = await send({
+    cmd: "generate",
+    context: $("context").value.trim(),
+    target,
+    recordingId: activeRecording ? activeRecording.id : undefined
+  });
   btn.disabled = false;
 
   if (!resp || !resp.ok) {
@@ -306,13 +384,29 @@ $("btnGenerate").addEventListener("click", async () => {
   currentMarkdown = resp.markdown.trim()
     // Belt-and-braces: strip a whole-document code fence if the model added one
     .replace(/^```[a-z]*\r?\n([\s\S]*?)\r?\n```$/i, "$1");
+  await prepareSplice();
   showResult();
 });
 
+// Snapshot the screenshots for {{screenshot_N}} splicing — from the active
+// recording (IndexedDB Blobs) or the live session (inline or IDB).
+async function prepareSplice() {
+  spliceMap = new Map();
+  const steps = activeRecording ? activeRecording.steps : currentSession.steps;
+  for (const s of steps) {
+    if (s.shot) {
+      spliceMap.set(s.n, s.shot);
+    } else if (s.hasShot) {
+      const rec = await PTDB.getShot(s.id);
+      if (rec && rec.blob) spliceMap.set(s.n, await PTCommon.blobToDataUrl(rec.blob));
+    }
+  }
+}
+
 function spliceImages(md) {
   return md.replace(/\{\{screenshot_(\d+)\}\}/g, (m, n) => {
-    const step = currentSession.steps.find(s => s.n === Number(n));
-    return step && step.shot ? `![Step ${n}](${step.shot})` : "";
+    const src = spliceMap.get(Number(n));
+    return src ? `![Step ${n}](${src})` : "";
   });
 }
 

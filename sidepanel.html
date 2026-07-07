@@ -16,24 +16,39 @@
     <button id="btnOptions" class="ghost" title="Settings">⚙</button>
   </header>
 
-  <section class="controls">
-    <button id="btnRecord" class="primary">● Start recording</button>
-    <button id="btnCapture" class="ghost" title="Alt+Shift+C">+ Capture screen</button>
-    <button id="btnClear" class="ghost danger" title="Discard session">Clear</button>
-  </section>
+  <nav class="tabs">
+    <button id="tabBtnRecorder" data-tab="recorder" class="active">Recorder</button>
+    <button id="tabBtnLibrary" data-tab="library">Library</button>
+  </nav>
 
-  <section class="controls">
-    <button id="btnDesktop" class="ghost" title="Record a native app window (vision-based)">🖥 Record a window</button>
-    <button id="btnNative" class="ghost" title="Semantic desktop capture via the UIA companion (see native-host/)">⚡ UIA companion</button>
-  </section>
+  <div id="tab-recorder">
+    <section class="controls">
+      <button id="btnRecord" class="primary">● Start recording</button>
+      <button id="btnCapture" class="ghost" title="Alt+Shift+C">+ Capture screen</button>
+      <button id="btnClear" class="ghost danger" title="Discard session">Clear</button>
+    </section>
 
-  <div id="deskStatus" class="status desk" hidden></div>
+    <section class="controls">
+      <button id="btnDesktop" class="ghost" title="Record a native app window (vision-based)">🖥 Record a window</button>
+      <button id="btnNative" class="ghost" title="Semantic desktop capture via the UIA companion (see native-host/)">⚡ UIA companion</button>
+      <button id="btnSave" class="ghost" title="Save this session to the library" disabled>💾 Save</button>
+    </section>
 
-  <div id="status" class="status">Idle — nothing recorded</div>
+    <div id="deskStatus" class="status desk" hidden></div>
 
-  <section id="steps" class="steps"></section>
+    <div id="status" class="status">Idle — nothing recorded</div>
+
+    <section id="steps" class="steps"></section>
+  </div>
+
+  <div id="tab-library" hidden>
+    <div id="libStatus" class="status">Library — saved recordings live in this browser profile only.</div>
+    <section id="libList" class="steps"></section>
+    <section id="libDetail" class="lib-detail" hidden></section>
+  </div>
 
   <section class="generate">
+    <div id="genSource" class="status" hidden></div>
     <select id="genTarget" title="Output type">
       <option value="sop">SOP document (Markdown)</option>
       <option value="powershell">PowerShell automation (.ps1)</option>
@@ -59,6 +74,9 @@
     <article id="preview"></article>
   </section>
 
+  <script src="common.js"></script>
+  <script src="db.js"></script>
   <script src="sidepanel.js"></script>
+  <script src="library.js"></script>
 </body>
 </html>

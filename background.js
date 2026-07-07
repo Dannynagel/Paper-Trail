@@ -2,6 +2,8 @@
 // Owns the recording session, takes+annotates screenshots, talks to
 // Anthropic / OpenAI / custom OpenAI-compatible endpoints.
 
+importScripts("db.js", "common.js");
+
 // ── Session state (rehydrated from storage.session on worker wake) ────────
 let session = { recording: false, steps: [], startedAt: 0 };
 let hydrated = false;
@@ -366,9 +368,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "generate": {
         try {
           const target = msg.target || "sop";
+          const steps = await resolveSteps(msg.recordingId);
           const md = target === "sop"
-            ? await generateSOP(msg.context || "")
-            : await generateAutomation(msg.context || "", target);
+            ? await generateSOP(steps, msg.context || "")
+            : await generateAutomation(steps, msg.context || "", target);
           sendResponse({ ok: true, markdown: md });
         } catch (e) {
           sendResponse({ ok: false, error: String(e.message || e) });
@@ -382,8 +385,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 // ── SOP generation ─────────────────────────────────────────────────────────
-function buildActionLog() {
-  return session.steps.map(s => ({
+
+// True whether the shot lives inline (legacy data URL) or in IndexedDB.
+function stepHasShot(s) { return !!(s.shot || s.hasShot); }
+
+// Base64 JPEG payload for a step's screenshot, wherever it is stored.
+async function shotDataFor(step) {
+  if (step.shot) return step.shot.split(",")[1];
+  if (step.hasShot) {
+    const rec = await PTDB.getShot(step.id);
+    if (rec && rec.blob) return (await blobToDataUrl(rec.blob)).split(",")[1];
+  }
+  return null;
+}
+
+// Steps for generation: the live session, or a saved recording from the library.
+async function resolveSteps(recordingId) {
+  if (!recordingId) return session.steps;
+  const rec = await PTDB.getRecording(recordingId);
+  if (!rec) throw new Error("Recording not found in library.");
+  return rec.steps;
+}
+
+function buildActionLog(steps) {
+  return steps.map(s => ({
     step: s.n,
     action: s.type === "desktop"
       ? "(desktop frame — describe from the attached screenshot)"
@@ -392,7 +417,7 @@ function buildActionLog() {
     page: s.pageTitle,
     url: s.url || undefined,
     note: s.note || undefined,
-    has_screenshot: !!s.shot
+    has_screenshot: stepHasShot(s)
   }));
 }
 
@@ -410,23 +435,27 @@ Rules:
 7. Infer Prerequisites from the pages and applications used (required system access, accounts). Be conservative — mark inferences as such.
 8. Use the operator's notes (the "note" fields) as authoritative context.`;
 
-async function generateSOP(userContext) {
+async function generateSOP(steps, userContext) {
   const st = await getSettings();
   if (!st.apiKey && st.provider !== "custom") throw new Error("No API key configured. Open extension options.");
   if (st.provider === "custom" && !st.customUrl) throw new Error("No custom endpoint URL configured. Open extension options.");
-  if (!session.steps.length) throw new Error("No steps recorded yet.");
+  if (!steps.length) throw new Error("No steps recorded yet.");
 
-  const log = JSON.stringify(buildActionLog(), null, 1);
+  const log = JSON.stringify(buildActionLog(steps), null, 1);
   let userText = `Create an SOP from this recorded session.\n\nACTION LOG:\n${log}`;
   if (userContext) userText += `\n\nOPERATOR CONTEXT (purpose/audience):\n${userContext}`;
 
   // Privacy rule: web/UIA screenshots stay local unless opted in.
   // Desktop-capture frames are the only meaning their steps have, so they
   // are always attached when such steps exist.
-  const attach = (s) => s.shot && (st.includeScreenshots || s.type === "desktop");
-  const shots = session.steps.filter(attach).map(s => ({ n: s.n, data: s.shot.split(",")[1] }));
+  const attach = (s) => stepHasShot(s) && (st.includeScreenshots || s.type === "desktop");
+  const shots = [];
+  for (const s of steps.filter(attach)) {
+    const data = await shotDataFor(s);
+    if (data) shots.push({ n: s.n, data });
+  }
 
-  const hasDesktop = session.steps.some(s => s.type === "desktop");
+  const hasDesktop = steps.some(s => s.type === "desktop");
   if (!st.includeScreenshots) {
     userText += hasDesktop
       ? `\n\n(Only desktop-capture frames are attached; browser screenshots exist locally and will be spliced in at export — still place {{screenshot_N}} tokens for every step with has_screenshot true.)`
@@ -440,8 +469,8 @@ async function generateSOP(userContext) {
 }
 
 // ── RPA / automation generation (text-only: no pixels ever leave) ──────────
-function buildAutomationLog() {
-  return session.steps.map(s => ({
+function buildAutomationLog(steps) {
+  return steps.map(s => ({
     step: s.n,
     type: s.type,                                    // click | input | select | key | submit | nav | uia | desktop | manual
     source: s.type === "uia" ? "desktop-uia" : (s.type === "desktop" ? "desktop-capture" : "browser"),
@@ -491,15 +520,15 @@ Rules:
 6. Be conservative and exact — a developer should be able to build the bot without re-recording.`
 };
 
-async function generateAutomation(userContext, target) {
+async function generateAutomation(steps, userContext, target) {
   const st = await getSettings();
   if (!st.apiKey && st.provider !== "custom") throw new Error("No API key configured. Open extension options.");
   if (st.provider === "custom" && !st.customUrl) throw new Error("No custom endpoint URL configured. Open extension options.");
-  if (!session.steps.length) throw new Error("No steps recorded yet.");
+  if (!steps.length) throw new Error("No steps recorded yet.");
   const sys = AUTOMATION_PROMPTS[target];
   if (!sys) throw new Error("Unknown automation target: " + target);
 
-  const log = JSON.stringify(buildAutomationLog(), null, 1);
+  const log = JSON.stringify(buildAutomationLog(steps), null, 1);
   let userText = `Convert this recorded session into ${target === "powershell" ? "a PowerShell automation script" : "an Automation Anywhere A360 build sheet"}.\n\nACTION LOG:\n${log}`;
   if (userContext) userText += `\n\nOPERATOR CONTEXT:\n${userContext}`;
 
