@@ -376,11 +376,23 @@ $("steps").addEventListener("change", async (e) => {
 // ── Generation ─────────────────────────────────────────────────────────────
 let currentTarget = "sop";
 
+// Script-producing targets: raw text preview, single script download button.
+const SCRIPT_TARGETS = {
+  powershell: { ext: ".ps1", bar: "PowerShell draft", title: "Automation_Script" },
+  playwright: { ext: ".spec.js", bar: "Playwright script", title: "Playwright_Script" },
+  pwtest: { ext: ".spec.js", bar: "Playwright test", title: "Playwright_Test" }
+};
+
+const GEN_LABELS = {
+  sop: "Generate SOP",
+  powershell: "Generate PowerShell script",
+  playwright: "Generate Playwright script",
+  pwtest: "Generate Playwright test",
+  aa: "Generate AA build sheet"
+};
+
 $("genTarget").addEventListener("change", () => {
-  const t = $("genTarget").value;
-  $("btnGenerate").textContent =
-    t === "sop" ? "Generate SOP" :
-    t === "powershell" ? "Generate PowerShell script" : "Generate AA build sheet";
+  $("btnGenerate").textContent = GEN_LABELS[$("genTarget").value] || "Generate";
 });
 
 $("btnGenerate").addEventListener("click", async () => {
@@ -438,17 +450,18 @@ function showResult() {
   $("result").hidden = false;
   $("editor").hidden = true;
   $("preview").hidden = false;
-  const isScript = currentTarget === "powershell";
+  const script = SCRIPT_TARGETS[currentTarget];
   const isAudit = currentTarget === "audit";
   $("result").querySelector(".result-bar span").textContent =
-    isScript ? "PowerShell draft" :
+    script ? script.bar :
     currentTarget === "aa" ? "AA build sheet" :
     isAudit ? "Privacy audit" : "Draft";
-  $("btnDlPs1").hidden = !isScript;
+  $("btnDlPs1").hidden = !script;
+  if (script) $("btnDlPs1").textContent = script.ext;
   $("btnDlJson").hidden = !isAudit;
-  $("btnDlMd").hidden = isScript;
-  $("btnDlHtml").hidden = isScript;
-  $("preview").innerHTML = isScript
+  $("btnDlMd").hidden = !!script;
+  $("btnDlHtml").hidden = !!script;
+  $("preview").innerHTML = script
     ? `<pre style="white-space:pre-wrap;font:11.5px/1.5 var(--mono);margin:0">${esc(currentMarkdown)}</pre>`
     : mdToHtml(spliceImages(currentMarkdown));
   $("result").scrollIntoView({ behavior: "smooth" });
@@ -487,8 +500,13 @@ function auditMarkdown(a) {
   const attached = a.shotsAttached.length
     ? `${a.shotsAttached.length} would be attached to the request (steps ${a.shotsAttached.join(", ")})`
     : "none would be attached to the request";
-  const targetName = a.target === "sop" ? "SOP document" :
-    a.target === "powershell" ? "PowerShell automation" : "Automation Anywhere build sheet";
+  const targetName = {
+    sop: "SOP document",
+    powershell: "PowerShell automation",
+    playwright: "Playwright automation script",
+    pwtest: "Playwright regression test",
+    aa: "Automation Anywhere build sheet"
+  }[a.target] || a.target;
 
   return `# Privacy Audit — what leaves this machine
 
@@ -551,7 +569,7 @@ $("btnEdit").addEventListener("click", () => {
   } else {
     currentMarkdown = ed.value;
     ed.hidden = true; pv.hidden = false;
-    pv.innerHTML = currentTarget === "powershell"
+    pv.innerHTML = SCRIPT_TARGETS[currentTarget]
       ? `<pre style="white-space:pre-wrap;font:11.5px/1.5 var(--mono);margin:0">${esc(currentMarkdown)}</pre>`
       : mdToHtml(spliceImages(currentMarkdown));
     $("btnEdit").textContent = "Edit";
@@ -559,14 +577,16 @@ $("btnEdit").addEventListener("click", () => {
 });
 
 $("btnCopy").addEventListener("click", async () => {
-  const text = currentTarget === "powershell" ? currentMarkdown : spliceImages(currentMarkdown);
+  const text = SCRIPT_TARGETS[currentTarget] ? currentMarkdown : spliceImages(currentMarkdown);
   await navigator.clipboard.writeText(text);
   $("btnCopy").textContent = "Copied ✓";
   setTimeout(() => $("btnCopy").textContent = "Copy", 1400);
 });
 
-$("btnDlPs1").addEventListener("click", () =>
-  download(`${sopTitle()}.ps1`, currentMarkdown, "text/plain"));
+$("btnDlPs1").addEventListener("click", () => {
+  const script = SCRIPT_TARGETS[currentTarget];
+  if (script) download(`${sopTitle()}${script.ext}`, currentMarkdown, "text/plain");
+});
 
 function download(name, content, mime) {
   const a = document.createElement("a");
@@ -578,7 +598,7 @@ function download(name, content, mime) {
 
 function sopTitle() {
   const m = currentMarkdown.match(/^#\s+(.+)$/m);
-  const fallback = currentTarget === "powershell" ? "Automation_Script" : "SOP";
+  const fallback = (SCRIPT_TARGETS[currentTarget] || {}).title || "SOP";
   return (m ? m[1] : fallback).replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, 60) || fallback;
 }
 

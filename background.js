@@ -583,7 +583,43 @@ Rules:
 4. Steps with "value_masked": true reference the credential/prompt variable from the Variables table.
 5. Steps with source "desktop-capture" have no anchors: flag them as "manual capture required in Recorder" with the step's description.
 6. Be conservative and exact — a developer should be able to build the bot without re-recording.
-7. Some steps carry "alt_selectors" — alternate verified anchors for the SAME element, in decreasing trust order. List them in the entry's object properties as secondary match criteria the developer can pin if the primary anchor proves unstable. Never invent anchors that are not in the log.`
+7. Some steps carry "alt_selectors" — alternate verified anchors for the SAME element, in decreasing trust order. List them in the entry's object properties as secondary match criteria the developer can pin if the primary anchor proves unstable. Never invent anchors that are not in the log.`,
+
+  playwright: `You are an automation engineer converting a recorded procedure into a production-quality Node.js Playwright script.
+
+You will receive a JSON action log with GROUND-TRUTH element anchors captured at record time:
+- Browser steps carry a verified CSS "selector" (primary) and may carry "alt_selectors" — alternate verified anchors for the SAME element in decreasing trust order.
+- Desktop steps (source "desktop-uia" or "desktop-capture") cannot be automated by Playwright.
+
+Rules:
+1. Output ONLY the JavaScript file. No markdown fences, no prose outside code comments.
+2. Structure: const { chromium } = require("playwright"); an async main() with try/finally browser close; and a locOf(page, selectors, stepN) helper that returns the first locator whose selector resolves within a short per-candidate timeout (~1500 ms) and throws with the step number when none do.
+3. For each step call locOf with [selector, ...alt_selectors] using the captured strings VERBATIM — never invent or "improve" selectors. click → .click(); input → .fill(value); select → .selectOption({ label: value }); key steps with "Enter" → .press("Enter"); nav steps → await page.goto(url) with the captured "url".
+4. Steps with "value_masked": true read their value from process.env.PT_<LABEL_IN_SNAKE_CASE>; start the file with a comment block listing every required environment variable and exit early with a clear message when one is missing.
+5. Desktop steps become a clearly-marked "// TODO step N: not a browser step — <description>" comment, never fake code.
+6. Wrap each step in try/catch that rethrows with the step number and human description; console.log each step before performing it.
+7. Use the operator's "note" and "narration" fields as code comments where they clarify intent.
+8. Be conservative: replay exactly what was recorded; no speculative branches, no extra assertions.`,
+
+  pwtest: `You are a QA engineer converting a recorded procedure into a READ-ONLY Playwright regression test (@playwright/test) that verifies the procedure's UI anchors still resolve — the CI version of an SOP health check.
+
+You will receive a JSON action log with GROUND-TRUTH element anchors captured at record time (primary "selector" plus optional "alt_selectors" in decreasing trust order).
+
+Rules:
+1. Output ONLY the JavaScript test file. No markdown fences, no prose outside code comments.
+2. Use const { test, expect } = require("@playwright/test"). Group consecutive steps sharing the same "url" (compare origin+path, ignore query/hash) into one test() named after the page; each test does ONE page.goto(url), then asserts anchors.
+3. The test is READ-ONLY: never click, fill, submit, or press keys. State this in a top-of-file comment.
+4. For each anchored step, assert that at least one of its anchors resolves: implement a firstResolving(page, selectors) helper returning the first locator with a match, and await expect(...).toBeVisible() with the step number and label in the failure message. Use captured selectors VERBATIM.
+5. Steps without a selector (nav, desktop, manual) contribute only their url grouping or a "// not verifiable: <description>" comment.
+6. Ignore "value_masked" — nothing is typed in a read-only check.
+7. Keep it runnable as-is with: npx playwright test <file>.`
+};
+
+const TARGET_DOC = {
+  powershell: "a PowerShell automation script",
+  aa: "an Automation Anywhere A360 build sheet",
+  playwright: "a Node.js Playwright automation script",
+  pwtest: "a read-only Playwright regression test spec"
 };
 
 // Build-only counterpart for automation targets. Text-only by design:
@@ -594,7 +630,7 @@ function buildAutomationRequest(steps, userContext, target) {
   if (!sys) throw new Error("Unknown automation target: " + target);
 
   const log = JSON.stringify(buildAutomationLog(steps), null, 1);
-  let userText = `Convert this recorded session into ${target === "powershell" ? "a PowerShell automation script" : "an Automation Anywhere A360 build sheet"}.\n\nACTION LOG:\n${log}`;
+  let userText = `Convert this recorded session into ${TARGET_DOC[target]}.\n\nACTION LOG:\n${log}`;
   if (userContext) userText += `\n\nOPERATOR CONTEXT:\n${userContext}`;
 
   return { system: sys, userText, shots: [] };
