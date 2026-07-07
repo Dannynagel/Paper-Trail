@@ -148,10 +148,25 @@ Additional properties: no external CDN or third-party scripts; capture is inert 
 
 ---
 
-## 7. Known limits and roadmap
+## 7. Library, Verify, Walkthrough, Audit (v1.1)
 
-- chrome.storage.session bounds a session to roughly 60 illustrated steps (configurable ceiling); an IndexedDB saved-SOP library is the planned fix.
+Four features added after 1.0, all built on the same premise: every recorded step carries machine-readable anchors, so a recording is data you can re-use — not just a document source.
+
+**SOP Library (`db.js`, `library.js`).** Saved recordings live in IndexedDB (`paper-trail` DB): a `recordings` store for step metadata and a `shots` store holding screenshots as Blobs keyed by step UUID. The shared `PTDB` module is loaded by both the service worker (`importScripts`) and the panel; long-running flows run only in the panel so MV3 worker eviction can never strand them. Live-session screenshots also live in the `shots` store (reserved recId `"live"`), which removed the old ~60-step `storage.session` ceiling — saving a session just reassigns its shots to the new recording, no bytes copied.
+
+**Verify Mode (`verify.js` + `resolveStep` in `content.js`).** Replays a saved recording's anchors read-only against the live UI in a dedicated tab and grades each step: *found* (selector resolves and the live label still agrees), *drifted* (label locates the element but the selector is stale — unique matches carry a suggested replacement selector, applied in one click), *missing*, *unreachable* (page failed to load or redirected off-origin), or *not verifiable* (desktop/UIA/manual steps). Navigation is SPA-tolerant (origin+path identity) and probes every frame.
+
+**Guided Walkthrough (`walkthrough.js` + mode machine in `content.js`).** The inverse of recording: the content script highlights the current step's element (same `resolveStep` anchors), and the same capture-phase listeners that record in recording mode instead *detect* the user's action in walkthrough mode — matching by element identity, then selector, then label+kind — and auto-advance. Cross-page steps offer "Take me there"; stale anchors degrade to a by-text highlight plus skip; desktop steps show instruction cards with the reference screenshot. A pagehide handler and a 20-second panel-ping deadman guarantee the overlay never outlives its session.
+
+**Privacy Audit (`buildAudit` in `background.js`).** One click renders the *literal* request that generation would send — same body builders as the real calls, so the audit is the payload by construction — with image bytes replaced by size placeholders and credentials excluded, plus a summary of masked values and which screenshots stay local. Exports as `.md`/`.html`/`.json` for compliance sign-off.
+
+---
+
+## 8. Known limits and roadmap
+
 - Canvas-rendered apps (Citrix/VDI, Flutter web) expose little DOM - window-capture mode or manual captures cover them.
 - Elevated (admin) windows may deny UIA reads; those clicks degrade to window title + screenshot.
 - Keystroke capture is deliberately excluded from the UIA companion in v1.
-- Roadmap: region redaction brush; verify mode (replay recorded anchors against the live UI to flag stale SOPs); DOCX export; team templates.
+- Verify and Walkthrough cover web anchors only; desktop (UIA / window-capture) steps grade "not verifiable" and walk through as instruction cards.
+- Sandboxed iframes that block extension injection grade "missing" in Verify even when the control exists.
+- Roadmap: region redaction brush; DOCX export; team templates.

@@ -44,8 +44,7 @@ const PTCommon = (() => {
     for (const g of grades) c[g in c ? g : "na"]++;
     const checked = c.found + c.fallback + c.missing + c.unreachable;
     if (!checked) return "no verifiable steps";
-    const healthy = c.found + c.fallback;
-    const parts = [`${healthy}/${checked} anchors healthy`];
+    const parts = [`${c.found}/${checked} anchors healthy`];
     const bad = [];
     if (c.fallback) bad.push(`${c.fallback} drifted`);
     if (c.missing) bad.push(`${c.missing} missing`);

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Paper Trail — pure-logic tests</title>
+<style>
+body { font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; background: #0E1116; color: #DEE4EC; padding: 24px; }
+.pass { color: #4FD6C4; }
+.fail { color: #FF4757; font-weight: 700; }
+h1 { font-size: 15px; }
+</style>
+</head>
+<body>
+<h1>Paper Trail — pure-logic tests (open this file in any browser)</h1>
+<div id="out"></div>
+
+<script src="common.js"></script>
+<script>
+const out = document.getElementById("out");
+let passed = 0, failed = 0;
+
+function eq(name, actual, expected) {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  ok ? passed++ : failed++;
+  const line = document.createElement("div");
+  line.className = ok ? "pass" : "fail";
+  line.textContent = `${ok ? "✓" : "✗"} ${name}` +
+    (ok ? "" : ` — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  out.appendChild(line);
+}
+
+// ── normLabel ────────────────────────────────────────────────────────────
+eq("normLabel collapses whitespace + case", PTCommon.normLabel("  Save\n  Order "), "save order");
+eq("normLabel strips truncation ellipsis", PTCommon.normLabel("Submit the quarterly…"), "submit the quarterly");
+eq("normLabel handles empty/null", PTCommon.normLabel(null), "");
+
+// ── labelMatches ─────────────────────────────────────────────────────────
+eq("labelMatches exact after normalization", PTCommon.labelMatches("Save  Order", "save order"), true);
+eq("labelMatches rejects different labels", PTCommon.labelMatches("Save Order", "Delete Order"), false);
+eq("labelMatches tolerates 80-char truncation",
+  PTCommon.labelMatches(
+    "Approve the request and forward it to the regional compliance officer for review",
+    "Approve the request and forward it to the regional compliance officer f…"), true);
+eq("labelMatches rejects short prefix collisions", PTCommon.labelMatches("Save", "Save Order"), false);
+eq("labelMatches rejects empty sides", PTCommon.labelMatches("", "Save"), false);
+
+// ── samePage / sameOrigin ────────────────────────────────────────────────
+eq("samePage ignores query and hash",
+  PTCommon.samePage("https://a.com/x?q=1#top", "https://a.com/x?q=2"), true);
+eq("samePage ignores trailing slash",
+  PTCommon.samePage("https://a.com/x/", "https://a.com/x"), true);
+eq("samePage rejects different paths",
+  PTCommon.samePage("https://a.com/x", "https://a.com/y"), false);
+eq("samePage rejects different origins",
+  PTCommon.samePage("https://a.com/x", "https://b.com/x"), false);
+eq("samePage tolerates invalid URLs", PTCommon.samePage("not a url", "https://a.com"), false);
+eq("sameOrigin ignores path", PTCommon.sameOrigin("https://a.com/x", "https://a.com/y"), true);
+eq("urlHost extracts host", PTCommon.urlHost("https://portal.example.com:8443/a"), "portal.example.com:8443");
+eq("urlHost tolerates junk", PTCommon.urlHost("nope"), "");
+
+// ── summarizeVerify ──────────────────────────────────────────────────────
+eq("summarizeVerify all healthy",
+  PTCommon.summarizeVerify(["found", "found", "na"]), "2/2 anchors healthy");
+eq("summarizeVerify mixed",
+  PTCommon.summarizeVerify(["found", "fallback", "missing", "unreachable", "na"]),
+  "1/4 anchors healthy — 1 drifted, 1 missing, 1 unreachable");
+eq("summarizeVerify nothing verifiable",
+  PTCommon.summarizeVerify(["na", "na"]), "no verifiable steps");
+eq("summarizeVerify unknown grades count as na",
+  PTCommon.summarizeVerify(["pending", "found"]), "1/1 anchors healthy");
+
+// ── auditStats ───────────────────────────────────────────────────────────
+const steps = [
+  { n: 1, label: "Username", masked: false, shot: "data:image/jpeg;base64,x" },
+  { n: 2, label: "Password", masked: true, hasShot: true },
+  { n: 3, label: "Sign in", masked: false }
+];
+eq("auditStats masked steps", PTCommon.auditStats(steps).maskedSteps, [{ n: 2, label: "Password" }]);
+eq("auditStats shot steps (inline + IDB)", PTCommon.auditStats(steps).shotSteps, [1, 2]);
+eq("auditStats step count", PTCommon.auditStats(steps).stepCount, 3);
+
+const h = document.createElement("h1");
+h.className = failed ? "fail" : "pass";
+h.textContent = `${passed} passed, ${failed} failed`;
+out.prepend(h);
+</script>
+</body>
+</html>
