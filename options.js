@@ -14,7 +14,7 @@ function syncProviderUI() {
 async function load() {
   const d = await chrome.storage.local.get({
     provider: "anthropic", apiKey: "", model: "", customUrl: "",
-    includeScreenshots: false, captureValues: false, maxSteps: 60
+    includeScreenshots: false, captureValues: false, maxSteps: 150
   });
   $("provider").value = d.provider;
   $("apiKey").value = d.apiKey;
@@ -29,7 +29,7 @@ async function load() {
 $("provider").addEventListener("change", syncProviderUI);
 
 $("save").addEventListener("click", async () => {
-  const maxSteps = Math.max(5, Math.min(200, parseInt($("maxSteps").value, 10) || 60));
+  const maxSteps = Math.max(5, Math.min(500, parseInt($("maxSteps").value, 10) || 150));
   await chrome.storage.local.set({
     provider: $("provider").value,
     apiKey: $("apiKey").value.trim(),

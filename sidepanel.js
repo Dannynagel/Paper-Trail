@@ -5,6 +5,27 @@ let currentSession = { recording: false, steps: [] };
 let currentMarkdown = "";
 let activeRecording = null;    // saved recording used as the generation source (null = live session)
 let spliceMap = new Map();     // step number -> screenshot data URL, snapshotted at generation time
+const objUrlCache = new Map(); // step id -> object URL for live-session screenshots in IndexedDB
+
+function revokeObjUrls() {
+  for (const u of objUrlCache.values()) URL.revokeObjectURL(u);
+  objUrlCache.clear();
+}
+
+// Fill in <img data-shot-id> placeholders from IndexedDB (live-session shots).
+async function hydrateShots(root) {
+  for (const img of root.querySelectorAll("img[data-shot-id]")) {
+    const id = img.dataset.shotId;
+    let u = objUrlCache.get(id);
+    if (!u) {
+      const rec = await PTDB.getShot(id).catch(() => null);
+      if (!rec || !rec.blob) { img.remove(); continue; }
+      u = URL.createObjectURL(rec.blob);
+      objUrlCache.set(id, u);
+    }
+    img.src = u;
+  }
+}
 
 // ── Messaging helpers ──────────────────────────────────────────────────────
 const send = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, res));
@@ -58,6 +79,7 @@ function render() {
   // Ledger
   const wrap = $("steps");
   if (!s.steps.length) {
+    revokeObjUrls();
     wrap.innerHTML = `<div class="empty">Start recording, then perform the procedure in any tab.<br>
       Every click, field, and page change is captured with its real label.<br>
       <span style="font-family:var(--mono);font-size:10px">Alt+Shift+S start/stop · Alt+Shift+C manual capture</span></div>`;
@@ -72,14 +94,16 @@ function render() {
         <div class="page" title="${esc(step.url)}">${esc(step.pageTitle || step.url)}</div>
         ${step.masked ? `<div class="masked">value masked</div>` : ""}
         ${step.shot ? `<img src="${step.shot}" alt="Step ${step.n} screenshot" loading="lazy">` :
+          step.hasShot ? `<img data-shot-id="${step.id}" alt="Step ${step.n} screenshot" loading="lazy">` :
           (step.shotDropped ? `<div class="masked">screenshot removed</div>` : "")}
         <textarea class="note" placeholder="Add note for the writer…" data-id="${step.id}">${esc(step.note)}</textarea>
       </div>
       <div class="tools">
-        ${step.shot ? `<button data-act="dropShot" data-id="${step.id}" title="Remove screenshot">🖼✕</button>` : ""}
+        ${(step.shot || step.hasShot) ? `<button data-act="dropShot" data-id="${step.id}" title="Remove screenshot">🖼✕</button>` : ""}
         <button data-act="delete" data-id="${step.id}" title="Delete step">✕</button>
       </div>
     </div>`).join("");
+  hydrateShots(wrap);
 }
 
 // ── Event wiring ───────────────────────────────────────────────────────────

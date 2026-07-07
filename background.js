@@ -35,7 +35,7 @@ async function getSettings() {
     customUrl: "",
     includeScreenshots: false,
     captureValues: false,
-    maxSteps: 60
+    maxSteps: 150
   });
   if (!d.model) d.model = d.provider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4o";
   return d;
@@ -77,11 +77,12 @@ async function captureShot(coords) {
   try {
     return await annotate(dataUrl, coords);
   } catch (e) {
-    return dataUrl;
+    try { return await (await fetch(dataUrl)).blob(); } catch (_) { return null; }
   }
 }
 
 // Downscale to <=1200px wide and draw a marker ring at the click point.
+// Returns a JPEG Blob — screenshots live in IndexedDB, never in storage.session.
 async function annotate(dataUrl, coords) {
   const blob = await (await fetch(dataUrl)).blob();
   const bmp = await createImageBitmap(blob);
@@ -108,8 +109,20 @@ async function annotate(dataUrl, coords) {
     ctx.beginPath(); ctx.arc(px, py, r * 1.8, 0, Math.PI * 2); ctx.stroke();
   }
 
-  const out = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.72 });
-  return blobToDataUrl(out);
+  return canvas.convertToBlob({ type: "image/jpeg", quality: 0.72 });
+}
+
+// Attach a screenshot Blob to a step: bytes go to IndexedDB under the live
+// session, the session record only carries the hasShot flag.
+async function attachShot(step, blob) {
+  if (!blob) return false;
+  try {
+    await PTDB.putShot({ stepId: step.id, recId: PTDB.LIVE_REC_ID, blob });
+    step.hasShot = true;
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 async function blobToDataUrl(blob) {
@@ -171,9 +184,10 @@ async function addStep(action, withShot = true) {
   if (!await pushStep(step)) return;
 
   if (withShot) {
-    step.shot = await captureShot(action);
-    await persist();
-    chrome.runtime.sendMessage({ evt: "sessionChanged" }).catch(() => {});
+    if (await attachShot(step, await captureShot(action))) {
+      await persist();
+      chrome.runtime.sendMessage({ evt: "sessionChanged" }).catch(() => {});
+    }
   }
 }
 
@@ -182,7 +196,7 @@ async function addStep(action, withShot = true) {
 async function addDesktopStep({ shot, label, manual }) {
   await hydrate();
   if (!session.recording) return;
-  await pushStep({
+  const step = {
     ts: Date.now(),
     type: "desktop",
     text: manual ? "(Desktop frame — manual capture)" : "(Desktop frame — screen changed)",
@@ -190,8 +204,16 @@ async function addDesktopStep({ shot, label, manual }) {
     value: "", masked: false, url: "",
     pageTitle: label || "Desktop window",
     note: "",
-    shot: shot || null
-  });
+    shot: null
+  };
+  if (!await pushStep(step)) return;
+  if (shot) {
+    const blob = await (await fetch(shot)).blob();
+    if (await attachShot(step, blob)) {
+      await persist();
+      chrome.runtime.sendMessage({ evt: "sessionChanged" }).catch(() => {});
+    }
+  }
 }
 
 // Semantic desktop step from the native UIA companion.
@@ -201,7 +223,7 @@ async function addUiaStep(m) {
   const label = m.label || "(unlabeled)";
   const kind = m.kind || "control";
   const app = m.app || "desktop app";
-  await pushStep({
+  const step = {
     ts: Date.now(),
     type: "uia",
     text: `Click **${label}** (${kind}) — ${app}`,
@@ -211,8 +233,16 @@ async function addUiaStep(m) {
     app,
     pageTitle: m.window || app,
     note: "",
-    shot: m.shot ? "data:image/jpeg;base64," + m.shot : null
-  });
+    shot: null
+  };
+  if (!await pushStep(step)) return;
+  if (m.shot) {
+    const blob = await (await fetch("data:image/jpeg;base64," + m.shot)).blob();
+    if (await attachShot(step, blob)) {
+      await persist();
+      chrome.runtime.sendMessage({ evt: "sessionChanged" }).catch(() => {});
+    }
+  }
 }
 
 // Navigation steps via tabs.onUpdated (recording only, http(s) only)
@@ -290,6 +320,7 @@ chrome.commands.onCommand.addListener(async (cmd) => {
 async function startRecording() {
   await hydrate();
   session = { recording: true, steps: [], startedAt: Date.now() };
+  await PTDB.deleteShotsByRec(PTDB.LIVE_REC_ID).catch(() => {});
   await persist();
   setBadge(true);
   await broadcastState();
@@ -322,15 +353,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "getState": sendResponse({ session }); break;
       case "clear":
         session = { recording: false, steps: [], startedAt: 0 };
+        await PTDB.deleteShotsByRec(PTDB.LIVE_REC_ID).catch(() => {});
         await persist(); setBadge(false); await broadcastState();
         sendResponse({ ok: true });
         break;
-      case "deleteStep":
+      case "deleteStep": {
+        const victim = session.steps.find(s => s.id === msg.id);
+        if (victim && victim.hasShot) await PTDB.deleteShot(msg.id).catch(() => {});
         session.steps = session.steps.filter(s => s.id !== msg.id);
         session.steps.forEach((s, i) => s.n = i + 1);
         await persist();
         sendResponse({ ok: true });
         break;
+      }
       case "updateNote": {
         const s = session.steps.find(s => s.id === msg.id);
         if (s) s.note = msg.note;
@@ -340,7 +375,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       case "dropShot": {
         const s = session.steps.find(s => s.id === msg.id);
-        if (s) { s.shot = null; s.shotDropped = true; }
+        if (s) {
+          if (s.hasShot) await PTDB.deleteShot(msg.id).catch(() => {});
+          s.shot = null; s.hasShot = false; s.shotDropped = true;
+        }
         await persist();
         sendResponse({ ok: true });
         break;
