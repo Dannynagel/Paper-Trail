@@ -1,0 +1,140 @@
+/* Paper Trail side panel — "flight recorder" console.
+   Tokens: ink #0E1116, panel #161B22, line #2A313C, text #DEE4EC,
+   muted #8B95A5, rec #FF4757, accent #4FD6C4, amber #E8B84B */
+
+:root {
+  --ink: #0E1116; --panel: #161B22; --line: #2A313C;
+  --text: #DEE4EC; --muted: #8B95A5;
+  --rec: #FF4757; --accent: #4FD6C4; --amber: #E8B84B;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--ink); color: var(--text);
+  font: 13px/1.45 var(--sans);
+  padding: 0 12px 16px;
+}
+
+/* Recording scanline — thin animated strip pinned to the top */
+#scanline {
+  position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 10;
+  background: linear-gradient(90deg, transparent, var(--rec) 40%, var(--rec) 60%, transparent);
+  background-size: 200% 100%;
+  animation: scan 1.6s linear infinite;
+}
+@keyframes scan { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { #scanline { animation: none; background: var(--rec); } }
+
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 0 10px;
+}
+.brand { display: flex; align-items: center; gap: 8px; }
+.mark {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid var(--accent);
+}
+h1 { font: 600 14px var(--mono); letter-spacing: 0.08em; margin: 0; text-transform: uppercase; }
+
+.controls { display: flex; gap: 6px; }
+
+button {
+  font: 600 12px var(--sans); color: var(--text);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 10px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #05221E; }
+button.primary:hover { filter: brightness(1.08); }
+button.primary.recording { background: var(--rec); border-color: var(--rec); color: #fff; }
+button.ghost { background: transparent; }
+button.danger:hover { border-color: var(--rec); color: var(--rec); }
+button.wide { width: 100%; }
+button:disabled { opacity: 0.45; cursor: default; }
+button.active { border-color: var(--accent); color: var(--accent); }
+button.active-rec { border-color: var(--rec); color: var(--rec); }
+
+.status.desk { color: var(--accent); }
+
+.status {
+  font: 11px var(--mono); color: var(--muted);
+  padding: 8px 2px; letter-spacing: 0.03em;
+}
+.status.rec { color: var(--rec); }
+.status.err { color: var(--amber); }
+
+/* ── Step ledger ─────────────────────────────────────────── */
+.steps { display: flex; flex-direction: column; gap: 1px; }
+
+.step {
+  display: grid; grid-template-columns: 52px 1fr; gap: 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px; position: relative;
+}
+.step .rail {
+  font: 10px/1.5 var(--mono); color: var(--muted); text-align: right;
+  border-right: 1px solid var(--line); padding-right: 8px;
+}
+.step .rail .n { color: var(--accent); font-weight: 700; font-size: 12px; display: block; }
+.step .body { min-width: 0; }
+.step .action { font-size: 12.5px; word-wrap: break-word; }
+.step .action b { color: var(--accent); font-weight: 600; }
+.step .page { font: 10px var(--mono); color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step img {
+  margin-top: 6px; width: 100%; border-radius: 4px; border: 1px solid var(--line);
+  display: block; cursor: zoom-in;
+}
+.step .masked { color: var(--amber); font-size: 10px; font-family: var(--mono); }
+.step .note {
+  width: 100%; margin-top: 6px; background: var(--ink); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; font: 11px var(--sans);
+  padding: 4px 6px; resize: vertical; min-height: 24px;
+}
+.step .tools {
+  position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
+  opacity: 0; transition: opacity 0.15s;
+}
+.step:hover .tools, .step:focus-within .tools { opacity: 1; }
+.step .tools button { padding: 2px 6px; font-size: 10px; }
+
+.empty {
+  border: 1px dashed var(--line); border-radius: 6px; padding: 22px 14px;
+  color: var(--muted); text-align: center; font-size: 12px;
+}
+
+/* ── Generate & result ───────────────────────────────────── */
+.generate { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+textarea#context, select#genTarget {
+  width: 100%; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px;
+  font: 12px var(--sans); resize: vertical;
+}
+
+.result { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.result-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 6px 10px; font: 600 11px var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.result-actions { display: flex; gap: 4px; }
+.result-actions button { padding: 3px 8px; font-size: 10.5px; }
+
+#editor {
+  width: 100%; min-height: 320px; border: 0; background: var(--ink); color: var(--text);
+  font: 12px/1.5 var(--mono); padding: 12px; resize: vertical;
+}
+
+#preview { padding: 12px 14px; background: #FBFBF9; color: #1C2128; font: 13px/1.55 var(--sans); }
+#preview h1 { font-size: 18px; margin: 6px 0 8px; }
+#preview h2 { font-size: 14px; margin: 14px 0 6px; border-bottom: 1px solid #E2E2DC; padding-bottom: 3px; }
+#preview ol, #preview ul { padding-left: 20px; margin: 6px 0; }
+#preview li { margin: 3px 0; }
+#preview img { max-width: 100%; border: 1px solid #D8D8D2; border-radius: 4px; margin: 6px 0; }
+#preview code { background: #EDEDE8; padding: 1px 4px; border-radius: 3px; font-family: var(--mono); font-size: 11.5px; }
+#preview p { margin: 6px 0; }

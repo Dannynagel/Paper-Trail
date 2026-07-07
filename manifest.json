@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "Paper Trail — Procedure Recorder",
+  "version": "1.0.0",
+  "description": "Record any browser procedure as semantic steps (real clicks, real labels) and generate a polished SOP with Claude or GPT. Screenshots stay local unless you opt in.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "activeTab",
+    "commands",
+    "nativeMessaging"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Paper Trail — open recorder panel"
+  },
+  "commands": {
+    "toggle-recording": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Start / stop recording"
+    },
+    "manual-capture": {
+      "suggested_key": { "default": "Alt+Shift+C" },
+      "description": "Capture current screen as a step"
+    },
+    "global-capture": {
+      "suggested_key": { "default": "Ctrl+Shift+9" },
+      "global": true,
+      "description": "Capture desktop frame (works while another app has focus)"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

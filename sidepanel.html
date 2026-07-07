@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Paper Trail</title>
+<link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div id="scanline" hidden></div>
+
+  <header>
+    <div class="brand">
+      <span class="mark"></span>
+      <h1>Paper&nbsp;Trail</h1>
+    </div>
+    <button id="btnOptions" class="ghost" title="Settings">⚙</button>
+  </header>
+
+  <section class="controls">
+    <button id="btnRecord" class="primary">● Start recording</button>
+    <button id="btnCapture" class="ghost" title="Alt+Shift+C">+ Capture screen</button>
+    <button id="btnClear" class="ghost danger" title="Discard session">Clear</button>
+  </section>
+
+  <section class="controls">
+    <button id="btnDesktop" class="ghost" title="Record a native app window (vision-based)">🖥 Record a window</button>
+    <button id="btnNative" class="ghost" title="Semantic desktop capture via the UIA companion (see native-host/)">⚡ UIA companion</button>
+  </section>
+
+  <div id="deskStatus" class="status desk" hidden></div>
+
+  <div id="status" class="status">Idle — nothing recorded</div>
+
+  <section id="steps" class="steps"></section>
+
+  <section class="generate">
+    <select id="genTarget" title="Output type">
+      <option value="sop">SOP document (Markdown)</option>
+      <option value="powershell">PowerShell automation (.ps1)</option>
+      <option value="aa">Automation Anywhere build sheet</option>
+    </select>
+    <textarea id="context" rows="2" placeholder="Optional context: purpose, audience, system name…"></textarea>
+    <button id="btnGenerate" class="primary wide">Generate SOP</button>
+    <div id="genStatus" class="status" hidden></div>
+  </section>
+
+  <section id="result" class="result" hidden>
+    <div class="result-bar">
+      <span>Draft</span>
+      <div class="result-actions">
+        <button id="btnEdit" class="ghost">Edit</button>
+        <button id="btnCopy" class="ghost">Copy</button>
+        <button id="btnDlMd" class="ghost">.md</button>
+        <button id="btnDlHtml" class="ghost">.html</button>
+        <button id="btnDlPs1" class="ghost" hidden>.ps1</button>
+      </div>
+    </div>
+    <textarea id="editor" hidden></textarea>
+    <article id="preview"></article>
+  </section>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

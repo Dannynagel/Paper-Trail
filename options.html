@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Paper Trail — Settings</title>
+<style>
+:root {
+  --ink:#0E1116; --panel:#161B22; --line:#2A313C; --text:#DEE4EC;
+  --muted:#8B95A5; --accent:#4FD6C4; --amber:#E8B84B;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--ink); color: var(--text);
+  font: 14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+  max-width: 620px; margin: 40px auto; padding: 0 20px; }
+h1 { font: 600 16px var(--mono); letter-spacing:.08em; text-transform: uppercase; }
+h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing:.06em; margin: 26px 0 8px; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 14px 16px; margin: 0 0 14px; }
+legend { padding: 0 6px; font: 600 11px var(--mono); letter-spacing:.06em; text-transform: uppercase; color: var(--muted); }
+label { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 12.5px; }
+input[type=text], input[type=password], select {
+  width: 100%; background: var(--ink); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hint { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.row { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; }
+.row input[type=checkbox] { margin-top: 3px; }
+.row div { flex: 1; }
+.row b { font-size: 12.5px; }
+button { background: var(--accent); color: #05221E; border: 0; border-radius: 6px;
+  padding: 9px 18px; font: 600 13px system-ui; cursor: pointer; margin-top: 8px; }
+#saved { color: var(--accent); font: 12px var(--mono); margin-left: 10px; }
+.warn { color: var(--amber); font-size: 11.5px; }
+</style>
+</head>
+<body>
+  <h1>Paper Trail — Settings</h1>
+
+  <fieldset>
+    <legend>Model provider</legend>
+    <label for="provider">Provider</label>
+    <select id="provider">
+      <option value="anthropic">Anthropic (Claude)</option>
+      <option value="openai">OpenAI (GPT)</option>
+      <option value="custom">Custom OpenAI-compatible endpoint (Open WebUI / Azure OpenAI / vLLM)</option>
+    </select>
+
+    <label for="apiKey">API key</label>
+    <input type="password" id="apiKey" autocomplete="off" placeholder="sk-…">
+    <div class="hint">Stored in chrome.storage.local on this machine only. Sent only to the endpoint below.</div>
+
+    <label for="model">Model</label>
+    <input type="text" id="model" placeholder="claude-sonnet-4-6 / gpt-4o / your deployment name">
+
+    <div id="customBlock" hidden>
+      <label for="customUrl">Chat completions URL</label>
+      <input type="text" id="customUrl" placeholder="https://openwebui.corp.example.com/api/chat/completions">
+      <div class="hint">Full URL of an OpenAI-compatible chat completions endpoint. For Open WebUI use
+        <code>/api/chat/completions</code>; Bearer auth is used with the key above.</div>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Privacy</legend>
+    <div class="row">
+      <input type="checkbox" id="includeScreenshots">
+      <div>
+        <b>Send screenshots to the model</b>
+        <div class="hint">Off (default): only the semantic action log — element labels, page titles, URLs —
+          leaves this machine. Screenshots stay local and are spliced into the document at export.
+          <span class="warn">Turn on only if your screen content is cleared for the configured endpoint.</span></div>
+      </div>
+    </div>
+    <div class="row">
+      <input type="checkbox" id="captureValues">
+      <div>
+        <b>Record typed values</b>
+        <div class="hint">Off (default): field entries are logged as "Enter a value in <b>Field</b>" without content.
+          Password and payment-like fields are always masked regardless of this setting.</div>
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Capture</legend>
+    <label for="maxSteps">Max steps per session</label>
+    <input type="text" id="maxSteps" inputmode="numeric" placeholder="60">
+    <div class="hint">Screenshots are stored in session memory; ~60 steps is a safe ceiling.</div>
+  </fieldset>
+
+  <button id="save">Save settings</button><span id="saved" hidden>Saved ✓</span>
+
+  <script src="options.js"></script>
+</body>
+</html>
