@@ -76,6 +76,21 @@ button.active-rec { border-color: var(--rec); color: var(--rec); }
 .lib-detail { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .lib-detail .lib-steps { padding: 8px; }
 
+/* ── Verify report ───────────────────────────────────────── */
+.ver-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 6px; vertical-align: baseline;
+}
+.ver-pending { background: var(--line); }
+.ver-found { background: var(--accent); }
+.ver-fallback { background: var(--amber); }
+.ver-missing, .ver-unreachable { background: var(--rec); }
+.ver-na { background: var(--muted); opacity: 0.5; }
+.ver-grade code {
+  background: var(--ink); padding: 1px 4px; border-radius: 3px;
+  font: 10px var(--mono); word-break: break-all;
+}
+
 .status {
   font: 11px var(--mono); color: var(--muted);
   padding: 8px 2px; letter-spacing: 0.03em;

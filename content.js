@@ -17,10 +17,19 @@
     if (resp) { recording = !!resp.recording; captureValues = !!resp.captureValues; }
   });
 
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg && msg.evt === "recordingState") {
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!msg) return;
+    if (msg.evt === "recordingState") {
       recording = !!msg.recording;
       captureValues = !!msg.captureValues;
+    } else if (msg.cmd === "probeStep") {
+      const r = resolveStep(msg.step || {});
+      sendResponse({
+        status: r.status,
+        matchedSelector: r.matchedSelector,
+        matchCount: r.matchCount,
+        frameUrl: location.href
+      });
     }
   });
 
@@ -109,6 +118,52 @@
       }
       return path.join(" > ").slice(0, 240);
     } catch (e) { return ""; }
+  }
+
+  // ── Anchor resolution (Verify Mode + Guided Walkthrough) ────────────────
+  function isVisible(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    const cs = getComputedStyle(el);
+    return cs.visibility !== "hidden" && cs.display !== "none";
+  }
+
+  // Locate a recorded step's element on the live page.
+  //   found    — the recorded selector still resolves AND its label agrees
+  //   fallback — selector is stale, but the label found the element
+  //              (matchedSelector suggests a repair when the match is unique)
+  //   missing  — neither anchor resolves
+  function resolveStep(step) {
+    if (step.selector) {
+      let el = null;
+      try { el = document.querySelector(step.selector); } catch (e) { /* invalid selector */ }
+      if (el && isVisible(el)) {
+        const live = describe(el);
+        if (!step.label || PTCommon.labelMatches(live.label, step.label)) {
+          return { status: "found", el, matchedSelector: step.selector, matchCount: 1 };
+        }
+        // selector hits a different control now (:nth-of-type drift) — fall through
+      }
+    }
+    if (step.label) {
+      const matches = [];
+      for (const c of document.querySelectorAll(INTERACTIVE)) {
+        if (!isVisible(c)) continue;
+        const d = describe(c);
+        if (!PTCommon.labelMatches(d.label, step.label)) continue;
+        if (step.kind && d.kind && step.kind !== d.kind) continue;
+        matches.push(c);
+        if (matches.length > 8) break; // hopeless — report ambiguity, don't scan forever
+      }
+      if (matches.length === 1) {
+        return { status: "fallback", el: matches[0], matchedSelector: cssPath(matches[0]), matchCount: 1 };
+      }
+      if (matches.length > 1) {
+        return { status: "fallback", el: null, matchedSelector: "", matchCount: matches.length };
+      }
+    }
+    return { status: "missing", el: null, matchedSelector: "", matchCount: 0 };
   }
 
   function post(action) {
