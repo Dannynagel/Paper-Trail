@@ -21,6 +21,20 @@ const PTCommon = (() => {
     return min >= 20 && (x.startsWith(y) || y.startsWith(x));
   }
 
+  // Ordered, deduped anchor candidates for a step — the single source of
+  // trust order. Test attributes outrank ids (they exist to be stable; ids
+  // are often framework-generated). The primary selector sits mid-list, so
+  // legacy single-selector steps degrade to [selector] — v1.1 behavior.
+  function anchorList(step) {
+    if (!step) return [];
+    const a = step.anchors || {};
+    const out = [];
+    for (const s of [a.testAttr, a.id, a.attr, step.selector, a.css]) {
+      if (s && !out.includes(s)) out.push(s);
+    }
+    return out;
+  }
+
   // SPA-tolerant page identity: same origin + path, ignoring query and hash.
   function samePage(u1, u2) {
     try {
@@ -70,5 +84,5 @@ const PTCommon = (() => {
     });
   }
 
-  return { normLabel, labelMatches, samePage, sameOrigin, urlHost, summarizeVerify, auditStats, blobToDataUrl };
+  return { normLabel, labelMatches, anchorList, samePage, sameOrigin, urlHost, summarizeVerify, auditStats, blobToDataUrl };
 })();

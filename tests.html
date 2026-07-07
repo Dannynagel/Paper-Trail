@@ -44,6 +44,21 @@ eq("labelMatches tolerates 80-char truncation",
 eq("labelMatches rejects short prefix collisions", PTCommon.labelMatches("Save", "Save Order"), false);
 eq("labelMatches rejects empty sides", PTCommon.labelMatches("", "Save"), false);
 
+// ── anchorList ───────────────────────────────────────────────────────────
+eq("anchorList orders by trust: testAttr > id > attr > selector > css",
+  PTCommon.anchorList({
+    selector: "#btn",
+    anchors: { testAttr: '[data-testid="go"]', id: "#go", attr: 'button[name="go"]', css: "div > button" }
+  }),
+  ['[data-testid="go"]', "#go", 'button[name="go"]', "#btn", "div > button"]);
+eq("anchorList dedupes repeats",
+  PTCommon.anchorList({ selector: "#go", anchors: { id: "#go", css: "div > button" } }),
+  ["#go", "div > button"]);
+eq("anchorList legacy step degrades to [selector]",
+  PTCommon.anchorList({ selector: "#btn" }), ["#btn"]);
+eq("anchorList empty step", PTCommon.anchorList({}), []);
+eq("anchorList null step", PTCommon.anchorList(null), []);
+
 // ── samePage / sameOrigin ────────────────────────────────────────────────
 eq("samePage ignores query and hash",
   PTCommon.samePage("https://a.com/x?q=1#top", "https://a.com/x?q=2"), true);

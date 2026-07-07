@@ -64,6 +64,7 @@ async function startVerify(recId) {
       const probe = await verifyProbeFrames(verifyRun.tabId, s);
       r.grade = probe.status;
       r.suggestion = probe.status === "fallback" ? probe.matchedSelector : "";
+      r.freshAnchors = probe.status === "fallback" ? probe.freshAnchors : undefined;
       r.matchCount = probe.matchCount;
       if (probe.status === "fallback" && !probe.matchedSelector) {
         r.detail = `ambiguous — ${probe.matchCount} label matches`;
@@ -139,7 +140,7 @@ async function verifyProbeFrames(tabId, step) {
     const r = await new Promise((res) => {
       chrome.tabs.sendMessage(tabId, {
         cmd: "probeStep",
-        step: { selector: step.selector, label: step.label, kind: step.kind, type: step.type }
+        step: { selector: step.selector, anchors: step.anchors, label: step.label, kind: step.kind, type: step.type }
       }, { frameId: f.frameId }, (resp) => {
         void chrome.runtime.lastError; // frame without our script — not an error
         res(resp || null);
@@ -215,7 +216,10 @@ function finishVerifyReport(rec, results, summary) {
       const byId = new Map(fresh.steps.map(s => [s.id, s]));
       for (const f of fixes) {
         const s = byId.get(f.step.id);
-        if (s) s.selector = f.suggestion;
+        if (!s) continue;
+        s.selector = f.suggestion;
+        // Overwrite, never merge — stale alternates must not linger and mask drift.
+        s.anchors = f.freshAnchors || undefined;
       }
       fresh.updatedAt = Date.now();
       fresh.lastVerified = { ts: Date.now(), summary: summary + " — repairs applied" };

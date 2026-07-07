@@ -39,6 +39,7 @@
         status: r.status,
         matchedSelector: r.matchedSelector,
         matchCount: r.matchCount,
+        freshAnchors: r.freshAnchors,
         frameUrl: location.href
       });
     } else if (msg.cmd === "walkArm") {
@@ -109,36 +110,72 @@
         el.textContent || el.value || el.title || el.alt || tag
       );
     }
-    return { label: label || "(unlabeled)", kind, tag, selector: cssPath(el) };
+    const selector = cssPath(el);
+    return { label: label || "(unlabeled)", kind, tag, selector, anchors: anchorsFor(el, selector) };
   }
 
-  // Robust selector for RPA replay: id → test attrs → name/aria → short structural path.
+  // Attribute selector, returned only when it uniquely identifies the element.
+  function attrSelector(el, attr) {
+    const v = el.getAttribute && el.getAttribute(attr);
+    if (!v) return "";
+    const sel = `${el.tagName.toLowerCase()}[${attr}="${v.replace(/"/g, '\\"')}"]`;
+    try { if (document.querySelectorAll(sel).length === 1) return sel; } catch (e) {}
+    return "";
+  }
+
+  // Short structural path (id shortcut → :nth-of-type chain, capped at 6 levels).
+  function structuralPath(el) {
+    const path = [];
+    let n = el, depth = 0;
+    while (n && n.nodeType === 1 && depth++ < 6) {
+      if (n.id) { path.unshift("#" + CSS.escape(n.id)); break; }
+      let seg = n.tagName.toLowerCase();
+      const parent = n.parentElement;
+      if (parent) {
+        const sibs = Array.from(parent.children).filter(c => c.tagName === n.tagName);
+        if (sibs.length > 1) seg += `:nth-of-type(${sibs.indexOf(n) + 1})`;
+      }
+      path.unshift(seg);
+      n = parent;
+    }
+    return path.join(" > ").slice(0, 240);
+  }
+
+  // Primary selector for RPA replay: id → test attrs → name/aria → structural path.
   function cssPath(el) {
     try {
       if (el.id) return "#" + CSS.escape(el.id);
-      const anchors = ["data-testid", "data-test", "data-qa", "data-cy", "name", "aria-label"];
-      for (const a of anchors) {
-        const v = el.getAttribute && el.getAttribute(a);
-        if (v) {
-          const sel = `${el.tagName.toLowerCase()}[${a}="${v.replace(/"/g, '\\"')}"]`;
-          if (document.querySelectorAll(sel).length === 1) return sel;
-        }
+      for (const a of ["data-testid", "data-test", "data-qa", "data-cy", "name", "aria-label"]) {
+        const sel = attrSelector(el, a);
+        if (sel) return sel;
       }
-      const path = [];
-      let n = el, depth = 0;
-      while (n && n.nodeType === 1 && depth++ < 6) {
-        if (n.id) { path.unshift("#" + CSS.escape(n.id)); break; }
-        let seg = n.tagName.toLowerCase();
-        const parent = n.parentElement;
-        if (parent) {
-          const sibs = Array.from(parent.children).filter(c => c.tagName === n.tagName);
-          if (sibs.length > 1) seg += `:nth-of-type(${sibs.indexOf(n) + 1})`;
-        }
-        path.unshift(seg);
-        n = parent;
-      }
-      return path.join(" > ").slice(0, 240);
+      return structuralPath(el);
     } catch (e) { return ""; }
+  }
+
+  // Every independent anchor the element offers (self-healing capture): unlike
+  // cssPath, which picks one winner, this records all of them so a single UI
+  // change can't orphan the step. Anchors equal to the primary are omitted.
+  function anchorsFor(el, primary) {
+    try {
+      const a = {};
+      for (const t of ["data-testid", "data-test", "data-qa", "data-cy"]) {
+        const sel = attrSelector(el, t);
+        if (sel) { a.testAttr = sel; break; }
+      }
+      if (el.id) {
+        const sel = "#" + CSS.escape(el.id);
+        try { if (document.querySelectorAll(sel).length === 1) a.id = sel; } catch (e) {}
+      }
+      for (const t of ["name", "aria-label"]) {
+        const sel = attrSelector(el, t);
+        if (sel) { a.attr = sel; break; }
+      }
+      const sp = structuralPath(el);
+      if (sp) a.css = sp;
+      for (const k of Object.keys(a)) if (a[k] === primary) delete a[k];
+      return Object.keys(a).length ? a : undefined;
+    } catch (e) { return undefined; }
   }
 
   // ── Anchor resolution (Verify Mode + Guided Walkthrough) ────────────────
@@ -151,22 +188,36 @@
   }
 
   // Locate a recorded step's element on the live page.
-  //   found    — the recorded selector still resolves AND its label agrees
-  //   fallback — selector is stale, but the label found the element
-  //              (matchedSelector suggests a repair when the match is unique)
-  //   missing  — neither anchor resolves
+  //   found    — the recorded PRIMARY selector still resolves AND its label agrees
+  //   fallback — the primary drifted, but an alternate anchor or the label
+  //              found the element (matchedSelector + freshAnchors suggest a repair)
+  //   missing  — no anchor resolves
   function resolveStep(step) {
-    if (step.selector) {
+    const tryAnchor = (sel) => {
       let el = null;
-      try { el = document.querySelector(step.selector); } catch (e) { /* invalid selector */ }
-      if (el && isVisible(el)) {
-        const live = describe(el);
-        if (!step.label || PTCommon.labelMatches(live.label, step.label)) {
-          return { status: "found", el, matchedSelector: step.selector, matchCount: 1 };
-        }
-        // selector hits a different control now (:nth-of-type drift) — fall through
+      try { el = document.querySelector(sel); } catch (e) { return null; /* invalid selector */ }
+      if (!el || !isVisible(el)) return null;
+      if (step.label && !PTCommon.labelMatches(describe(el).label, step.label)) return null;
+      return el;
+    };
+
+    // 1. Primary selector — the only path that grades "found".
+    if (step.selector) {
+      const el = tryAnchor(step.selector);
+      if (el) return { status: "found", el, matchedSelector: step.selector, matchCount: 1 };
+    }
+    // 2. Alternate anchors in trust order — a hit means the primary drifted.
+    for (const sel of PTCommon.anchorList(step)) {
+      if (sel === step.selector) continue;
+      const el = tryAnchor(sel);
+      if (el) {
+        return {
+          status: "fallback", el, matchedSelector: sel, matchCount: 1,
+          freshAnchors: anchorsFor(el, sel)
+        };
       }
     }
+    // 3. Label scan across interactive elements.
     if (step.label) {
       const matches = [];
       for (const c of document.querySelectorAll(INTERACTIVE)) {
@@ -178,7 +229,12 @@
         if (matches.length > 8) break; // hopeless — report ambiguity, don't scan forever
       }
       if (matches.length === 1) {
-        return { status: "fallback", el: matches[0], matchedSelector: cssPath(matches[0]), matchCount: 1 };
+        const el = matches[0];
+        const sel = cssPath(el);
+        return {
+          status: "fallback", el, matchedSelector: sel, matchCount: 1,
+          freshAnchors: anchorsFor(el, sel)
+        };
       }
       if (matches.length > 1) {
         return { status: "fallback", el: null, matchedSelector: "", matchCount: matches.length };
@@ -274,8 +330,10 @@
         (el.contains && el.contains(armedEl)))) {
       via = "element";
     }
-    if (!via && armedStep.selector) {
-      try { if (el.matches && el.matches(armedStep.selector)) via = "selector"; } catch (err) {}
+    if (!via) {
+      for (const sel of PTCommon.anchorList(armedStep)) {
+        try { if (el.matches && el.matches(sel)) { via = "selector"; break; } } catch (err) {}
+      }
     }
     if (!via) {
       const d = describe(raw);
@@ -356,6 +414,7 @@
       label: info.label,
       kind: info.kind,
       selector: info.selector,
+      anchors: info.anchors,
       x: e.clientX,
       y: e.clientY
     });
@@ -386,12 +445,14 @@
       value = clean(el.value, 60);
     }
 
+    const selector = cssPath(el);
     post({
       type: tag === "select" ? "select" : "input",
       label, value,
       masked: sensitive || (!captureValues && tag !== "select" && type !== "checkbox" && type !== "radio"),
       kind: tag === "select" ? "dropdown" : (type || "field"),
-      selector: cssPath(el),
+      selector,
+      anchors: anchorsFor(el, selector),
       x: cx, y: cy
     });
   }, true);

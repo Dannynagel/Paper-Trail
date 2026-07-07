@@ -113,7 +113,7 @@ async function walkArmCurrent() {
     cmd: "walkArm",
     step: {
       id: step.id, n: step.n, text: step.text, type: step.type,
-      label: step.label, kind: step.kind, selector: step.selector
+      label: step.label, kind: step.kind, selector: step.selector, anchors: step.anchors
     }
   };
   const frames = await walkFrames();

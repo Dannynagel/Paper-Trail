@@ -176,6 +176,7 @@ async function addStep(action, withShot = true) {
     value: action.masked ? "" : (action.value || ""),
     masked: !!action.masked,
     selector: action.selector || "",
+    anchors: action.anchors || undefined,
     url: action.url || "",
     pageTitle: action.title || "",
     note: "",
@@ -525,6 +526,12 @@ async function generateSOP(steps, userContext) {
 }
 
 // ── RPA / automation generation (text-only: no pixels ever leave) ──────────
+// Alternate verified anchors for a step, primary excluded (automation payload).
+function altSelectors(s) {
+  const alts = PTCommon.anchorList(s).filter(x => x !== s.selector);
+  return alts.length ? alts : undefined;
+}
+
 function buildAutomationLog(steps) {
   return steps.map(s => ({
     step: s.n,
@@ -534,7 +541,8 @@ function buildAutomationLog(steps) {
     kind: s.kind || undefined,
     value: s.masked ? undefined : (s.value || undefined),
     value_masked: s.masked || undefined,             // masked entries become script parameters
-    selector: s.selector || undefined,               // web: verified CSS selector
+    selector: s.selector || undefined,               // web: verified CSS selector (primary)
+    alt_selectors: altSelectors(s),                  // web: alternate verified anchors, trust-ordered
     automation_id: s.autoId || undefined,            // desktop: UIA AutomationId
     class_name: s.className || undefined,            // desktop: UIA ClassName
     app: s.app || undefined,
@@ -559,7 +567,8 @@ Rules:
 5. Steps with source "desktop-capture" have no anchors: emit a clearly-marked "# TODO: manual anchor required" block describing the step from its note, never a fake anchor.
 6. Include: a param() block, a Write-StepLog helper, a Wait-ForElement helper with timeout + retry for both web and UIA lookups, try/catch per step with the step number in the error, and a summary at the end.
 7. Comment each step with its original step number and human description.
-8. Be conservative: replay exactly what was recorded; no speculative branches.`,
+8. Be conservative: replay exactly what was recorded; no speculative branches.
+9. Some steps carry "alt_selectors" — alternate verified anchors for the SAME element, in decreasing trust order. Try the primary "selector" first and fall back through alt_selectors in the element-lookup helper. Never invent anchors that are not in the log.`,
 
   aa: `You are an RPA consultant converting a recorded procedure into an Automation Anywhere A360 bot build sheet. Bot JSON is not a supported hand-authoring format, so produce the document a CoE developer would use to assemble the bot quickly and correctly in the A360 editor.
 
@@ -573,7 +582,8 @@ Rules:
 3. Each Bot Action entry must name the exact A360 action (e.g. "Recorder: Capture", "Browser: Launch website", "Recorder: Capture — action Set text") and list the object properties to pin, quoting the captured anchors VERBATIM: window title, ControlType, Name, AutomationId / DOMXPath or CSS selector. Recommend which properties to enable for matching (prefer AutomationId / CSS anchor over coordinates; never recommend image or coordinate matching when an anchor exists).
 4. Steps with "value_masked": true reference the credential/prompt variable from the Variables table.
 5. Steps with source "desktop-capture" have no anchors: flag them as "manual capture required in Recorder" with the step's description.
-6. Be conservative and exact — a developer should be able to build the bot without re-recording.`
+6. Be conservative and exact — a developer should be able to build the bot without re-recording.
+7. Some steps carry "alt_selectors" — alternate verified anchors for the SAME element, in decreasing trust order. List them in the entry's object properties as secondary match criteria the developer can pin if the primary anchor proves unstable. Never invent anchors that are not in the log.`
 };
 
 // Build-only counterpart for automation targets. Text-only by design:
