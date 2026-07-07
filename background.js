@@ -419,8 +419,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       case "auditPayload": {
         try {
-          const audit = await buildAudit(msg.target || "sop", msg.context || "", msg.recordingId);
+          const audit = await buildAudit(msg.target || "sop", msg.context || "", msg.recordingId, msg.recordingIdB);
           sendResponse({ ok: true, audit });
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e.message || e) });
+        }
+        break;
+      }
+      case "generateDiff": {
+        try {
+          const md = await generateDiff(msg.recordingIdA, msg.recordingIdB, msg.context || "");
+          sendResponse({ ok: true, markdown: md });
         } catch (e) {
           sendResponse({ ok: false, error: String(e.message || e) });
         }
@@ -644,6 +653,53 @@ async function generateAutomation(steps, userContext, target) {
   return callOpenAI(st, req.system, req.userText, req.shots);
 }
 
+// ── Change-management summary from a recording diff ────────────────────────
+const DIFF_PROMPT = `You are a technical writer producing a change-management summary comparing two recorded versions of the same procedure, for a regulated enterprise environment.
+
+You will receive metadata for the OLD and NEW recordings and a JSON list of aligned diff entries computed locally from the two recordings — they are ground truth. Ops: "unchanged", "relabeled" (same control, new label), "added" (new in NEW), "removed" (gone from NEW). Entries may carry url_changed / value_changed / anchors_changed flags.
+
+Rules:
+1. Output ONLY the Markdown document. No preamble, no code fences around the whole document.
+2. Structure: # Title, ## Summary (one plain-language paragraph), ## What changed (grouped: relabeled / added / removed, quoting UI labels verbatim in bold), ## Impact on operators (retraining points — conservative, evidence-based), ## Impact on automation (steps with anchors_changed — flag scripts and bots needing re-validation). Omit any section with nothing to say.
+3. Do not invent, infer, or soften changes beyond the entries provided.
+4. Quote element labels exactly as given.`;
+
+// Diff entries stripped to what the model needs — never anchors or values.
+function buildDiffRequest(recA, recB, entries, userContext) {
+  const plain = (t) => String(t || "").replace(/\*\*/g, "");
+  const payload = entries.map(e => ({
+    op: e.op,
+    n_old: e.a ? e.a.n : undefined,
+    n_new: e.b ? e.b.n : undefined,
+    text_old: e.a ? plain(e.a.text) : undefined,
+    text_new: e.b ? plain(e.b.text) : undefined,
+    page: (e.b || e.a).pageTitle || undefined,
+    url_changed: e.urlChanged || undefined,
+    value_changed: e.valueChanged || undefined,
+    anchors_changed: e.anchorsChanged || undefined
+  }));
+  const meta = (rec) =>
+    `"${rec.title}" (${new Date(rec.createdAt).toISOString().slice(0, 10)}, ${rec.steps.length} steps)`;
+  let userText = `Produce a change-management summary.\n\nOLD RECORDING: ${meta(recA)}\nNEW RECORDING: ${meta(recB)}\n\nDIFF ENTRIES:\n${JSON.stringify(payload, null, 1)}`;
+  if (userContext) userText += `\n\nOPERATOR CONTEXT:\n${userContext}`;
+  return { system: DIFF_PROMPT, userText, shots: [] };
+}
+
+async function loadDiffPair(idA, idB) {
+  const [recA, recB] = await Promise.all([PTDB.getRecording(idA), PTDB.getRecording(idB)]);
+  if (!recA || !recB) throw new Error("Recording not found in library.");
+  return { recA, recB, entries: PTCommon.diffSteps(recA.steps, recB.steps) };
+}
+
+async function generateDiff(idA, idB, userContext) {
+  const st = await getSettings();
+  requireEndpoint(st);
+  const { recA, recB, entries } = await loadDiffPair(idA, idB);
+  const req = buildDiffRequest(recA, recB, entries, userContext);
+  if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
+  return callOpenAI(st, req.system, req.userText, req.shots);
+}
+
 // ── Provider transport (bodies shared with the privacy audit) ──────────────
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
@@ -736,12 +792,19 @@ function redactImagesInBody(body) {
   return redacted;
 }
 
-async function buildAudit(target, userContext, recordingId) {
-  const steps = await resolveSteps(recordingId);
+async function buildAudit(target, userContext, recordingId, recordingIdB) {
   const st = await getSettings();
-  const req = target === "sop"
-    ? await buildSopRequest(steps, userContext, st)
-    : buildAutomationRequest(steps, userContext, target);
+  let steps, req;
+  if (target === "diff") {
+    const { recA, recB, entries } = await loadDiffPair(recordingId, recordingIdB);
+    steps = []; // the diff payload carries step text only — no anchors, values, or shots
+    req = buildDiffRequest(recA, recB, entries, userContext);
+  } else {
+    steps = await resolveSteps(recordingId);
+    req = target === "sop"
+      ? await buildSopRequest(steps, userContext, st)
+      : buildAutomationRequest(steps, userContext, target);
+  }
   const body = st.provider === "anthropic"
     ? anthropicBody(st, req.system, req.userText, req.shots)
     : openaiBody(st, req.system, req.userText, req.shots);

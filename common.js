@@ -67,6 +67,83 @@ const PTCommon = (() => {
     return parts.join(" — ");
   }
 
+  // ── Recording diff ────────────────────────────────────────────────────────
+
+  const stepKey = (s) => `${s.type}|${s.kind || ""}|${normLabel(s.label)}`;
+
+  // Shared normalized words / max words — the relabel-pairing heuristic.
+  function tokenOverlap(a, b) {
+    const ta = new Set(normLabel(a).split(" ").filter(Boolean));
+    const tb = new Set(normLabel(b).split(" ").filter(Boolean));
+    if (!ta.size || !tb.size) return 0;
+    let shared = 0;
+    for (const t of ta) if (tb.has(t)) shared++;
+    return shared / Math.max(ta.size, tb.size);
+  }
+
+  // Align two step ledgers (LCS on type|kind|label keys) and classify each
+  // position. Within the gaps between matches, a removed+added pair at the
+  // same offset with matching type+kind and token overlap ≥ 0.3 reads as a
+  // relabel. Known limit: a MOVED step appears as removed + added.
+  function diffSteps(stepsA, stepsB) {
+    const A = stepsA || [], B = stepsB || [];
+    const keyA = A.map(stepKey), keyB = B.map(stepKey);
+    const n = A.length, m = B.length;
+    const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        dp[i][j] = keyA[i] === keyB[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+
+    const entries = [];
+    const emitGap = (removed, added) => {
+      const len = Math.max(removed.length, added.length);
+      for (let k = 0; k < len; k++) {
+        const a = removed[k], b = added[k];
+        if (a && b && a.type === b.type && (a.kind || "") === (b.kind || "") &&
+            tokenOverlap(a.label, b.label) >= 0.3) {
+          entries.push({ op: "relabeled", a, b });
+        } else {
+          if (a) entries.push({ op: "removed", a });
+          if (b) entries.push({ op: "added", b });
+        }
+      }
+    };
+
+    let i = 0, j = 0, remGap = [], addGap = [];
+    while (i < n && j < m) {
+      if (keyA[i] === keyB[j]) {
+        emitGap(remGap, addGap); remGap = []; addGap = [];
+        const a = A[i], b = B[j];
+        const e = { op: "unchanged", a, b };
+        if (a.url && b.url && !samePage(a.url, b.url)) e.urlChanged = true;
+        if ((a.value || "") !== (b.value || "")) e.valueChanged = true;
+        if ((a.selector || "") !== (b.selector || "")) e.anchorsChanged = true;
+        entries.push(e);
+        i++; j++;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        remGap.push(A[i++]);
+      } else {
+        addGap.push(B[j++]);
+      }
+    }
+    while (i < n) remGap.push(A[i++]);
+    while (j < m) addGap.push(B[j++]);
+    emitGap(remGap, addGap);
+    return entries;
+  }
+
+  function summarizeDiff(entries) {
+    const c = { unchanged: 0, relabeled: 0, added: 0, removed: 0 };
+    for (const e of entries) if (e.op in c) c[e.op]++;
+    const parts = [`${c.unchanged} unchanged`];
+    if (c.relabeled) parts.push(`${c.relabeled} relabeled`);
+    if (c.added) parts.push(`${c.added} added`);
+    if (c.removed) parts.push(`${c.removed} removed`);
+    return parts.join(", ");
+  }
+
   // Privacy-audit stats over a step array (pure; used by background + tests).
   function auditStats(steps) {
     const maskedSteps = steps.filter(s => s.masked).map(s => ({ n: s.n, label: s.label }));
@@ -84,5 +161,8 @@ const PTCommon = (() => {
     });
   }
 
-  return { normLabel, labelMatches, anchorList, samePage, sameOrigin, urlHost, summarizeVerify, auditStats, blobToDataUrl };
+  return {
+    normLabel, labelMatches, anchorList, samePage, sameOrigin, urlHost,
+    summarizeVerify, diffSteps, summarizeDiff, auditStats, blobToDataUrl
+  };
 })();

@@ -505,7 +505,8 @@ function auditMarkdown(a) {
     powershell: "PowerShell automation",
     playwright: "Playwright automation script",
     pwtest: "Playwright regression test",
-    aa: "Automation Anywhere build sheet"
+    aa: "Automation Anywhere build sheet",
+    diff: "Change-management summary (recording diff)"
   }[a.target] || a.target;
 
   return `# Privacy Audit — what leaves this machine

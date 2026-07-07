@@ -84,6 +84,51 @@ eq("summarizeVerify nothing verifiable",
 eq("summarizeVerify unknown grades count as na",
   PTCommon.summarizeVerify(["pending", "found"]), "1/1 anchors healthy");
 
+// ── diffSteps / summarizeDiff ────────────────────────────────────────────
+const mk = (type, kind, label, extra) => Object.assign({ type, kind, label, text: label, n: 0 }, extra);
+const ops = (es) => es.map(e => e.op);
+
+eq("diff identical lists → all unchanged",
+  ops(PTCommon.diffSteps(
+    [mk("click", "button", "Save"), mk("input", "text", "Name")],
+    [mk("click", "button", "Save"), mk("input", "text", "Name")])),
+  ["unchanged", "unchanged"]);
+eq("diff pure add",
+  ops(PTCommon.diffSteps(
+    [mk("click", "button", "Save")],
+    [mk("click", "button", "Save"), mk("click", "button", "Archive")])),
+  ["unchanged", "added"]);
+eq("diff pure remove",
+  ops(PTCommon.diffSteps(
+    [mk("click", "button", "Save"), mk("click", "button", "Archive")],
+    [mk("click", "button", "Save")])),
+  ["unchanged", "removed"]);
+eq("diff relabel pairs similar labels of same type+kind",
+  ops(PTCommon.diffSteps(
+    [mk("click", "button", "Submit Order")],
+    [mk("click", "button", "Submit Purchase Order")])),
+  ["relabeled"]);
+eq("diff does NOT pair unrelated adjacent add+remove",
+  ops(PTCommon.diffSteps(
+    [mk("click", "button", "Cancel")],
+    [mk("click", "button", "Help")])),
+  ["removed", "added"]);
+eq("diff reorder reads as removed + added",
+  ops(PTCommon.diffSteps(
+    [mk("click", "button", "Alpha"), mk("click", "button", "Beta")],
+    [mk("click", "button", "Beta"), mk("click", "button", "Alpha")])).sort(),
+  ["added", "removed", "unchanged"]);
+eq("diff flags sub-changes on unchanged steps",
+  PTCommon.diffSteps(
+    [mk("click", "button", "Save", { selector: "#a", url: "https://x.com/p1" })],
+    [mk("click", "button", "Save", { selector: "#b", url: "https://x.com/p2" })]
+  )[0].anchorsChanged, true);
+eq("diff empty inputs", PTCommon.diffSteps([], []), []);
+eq("summarizeDiff counts",
+  PTCommon.summarizeDiff([{ op: "unchanged" }, { op: "unchanged" }, { op: "relabeled" }, { op: "added" }, { op: "removed" }]),
+  "2 unchanged, 1 relabeled, 1 added, 1 removed");
+eq("summarizeDiff identical", PTCommon.summarizeDiff([{ op: "unchanged" }]), "1 unchanged");
+
 // ── auditStats ───────────────────────────────────────────────────────────
 const steps = [
   { n: 1, label: "Username", masked: false, shot: "data:image/jpeg;base64,x" },

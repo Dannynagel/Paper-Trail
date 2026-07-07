@@ -4,6 +4,7 @@
 // startVerify(id), startWalkthrough(id), startAudit(id).
 
 let libObjUrls = [];
+let libCompareA = null; // first pick of a pending ⇄ Compare
 
 function libRevokeUrls() {
   for (const u of libObjUrls) URL.revokeObjectURL(u);
@@ -26,6 +27,7 @@ async function renderLibrary() {
   const canVerify = typeof startVerify === "function";
   const canWalk = typeof startWalkthrough === "function";
   const canAudit = typeof startAudit === "function";
+  const canCompare = typeof startCompare === "function" && list.length > 1;
 
   wrap.innerHTML = list.map(r => `
     <div class="step lib-row" data-id="${r.id}">
@@ -40,6 +42,7 @@ async function renderLibrary() {
           ${canWalk ? `<button data-act="walk" title="Guided walkthrough on the live site">▶ Walk</button>` : ""}
           ${canVerify ? `<button data-act="verify" title="Check anchors against the live site">✓ Verify</button>` : ""}
           <button data-act="regen" title="Generate from this recording">Re-gen</button>
+          ${canCompare ? `<button data-act="compare" title="Diff against another recording">⇄ Compare</button>` : ""}
           ${canAudit ? `<button data-act="audit" title="Preview exactly what would be sent to the model">Audit</button>` : ""}
           <button data-act="rename">Rename</button>
           <button data-act="del" class="danger" title="Delete recording">✕</button>
@@ -122,6 +125,22 @@ $("libList").addEventListener("click", async (e) => {
       if (activeRecording && activeRecording.id === id) setGenSource(null);
       $("libDetail").hidden = true;
       renderLibrary();
+      break;
+    }
+    case "compare": {
+      if (typeof startCompare !== "function") break;
+      if (!libCompareA) {
+        libCompareA = id;
+        $("libStatus").textContent = "Compare ► pick the second recording (⇄ on another row; same row cancels)";
+      } else if (libCompareA === id) {
+        libCompareA = null;
+        $("libStatus").textContent = "Library — saved recordings live in this browser profile only.";
+      } else {
+        const a = libCompareA;
+        libCompareA = null;
+        $("libStatus").textContent = "Library — saved recordings live in this browser profile only.";
+        startCompare(a, id);
+      }
       break;
     }
     case "verify":
