@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Paper Trail — microphone access</title>
+<style>
+body { font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #0E1116; color: #DEE4EC; display: grid; place-items: center;
+  height: 100vh; margin: 0; }
+div { max-width: 440px; text-align: center; padding: 0 20px; }
+h1 { font-size: 18px; }
+#state { font-weight: 700; color: #4FD6C4; }
+.hint { color: #8B95A5; font-size: 12.5px; }
+</style>
+</head>
+<body>
+  <div>
+    <h1>🎤 Microphone access</h1>
+    <p id="state">Requesting microphone permission…</p>
+    <p class="hint">The side panel can't always show Chrome's permission prompt, so it opened this tab.
+      Narration is transcribed through the endpoint you configured in Paper Trail's options;
+      the audio itself is never stored.</p>
+  </div>
+  <script src="mic.js"></script>
+</body>
+</html>

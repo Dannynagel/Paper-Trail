@@ -35,7 +35,10 @@ async function getSettings() {
     customUrl: "",
     includeScreenshots: false,
     captureValues: false,
-    maxSteps: 150
+    maxSteps: 150,
+    transcribeUrl: "https://api.openai.com/v1/audio/transcriptions",
+    transcribeModel: "whisper-1",
+    transcribeKey: ""
   });
   if (!d.model) d.model = d.provider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4o";
   return d;
@@ -180,6 +183,7 @@ async function addStep(action, withShot = true) {
     url: action.url || "",
     pageTitle: action.title || "",
     note: "",
+    narration: "",
     shot: null
   };
   if (!await pushStep(step)) return;
@@ -205,6 +209,7 @@ async function addDesktopStep({ shot, label, manual }) {
     value: "", masked: false, url: "",
     pageTitle: label || "Desktop window",
     note: "",
+    narration: "",
     shot: null
   };
   if (!await pushStep(step)) return;
@@ -234,6 +239,7 @@ async function addUiaStep(m) {
     app,
     pageTitle: m.window || app,
     note: "",
+    narration: "",
     shot: null
   };
   if (!await pushStep(step)) return;
@@ -374,6 +380,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       }
+      case "setNarration": {
+        const byId = new Map(session.steps.map(s => [s.id, s]));
+        for (const item of msg.items || []) {
+          const s = byId.get(item.id);
+          if (s) s.narration = String(item.narration || "");
+        }
+        await persist();
+        chrome.runtime.sendMessage({ evt: "sessionChanged" }).catch(() => {});
+        sendResponse({ ok: true });
+        break;
+      }
+      case "dropNarration": {
+        const s = session.steps.find(s => s.id === msg.id);
+        if (s) s.narration = "";
+        await persist();
+        sendResponse({ ok: true });
+        break;
+      }
       case "dropShot": {
         const s = session.steps.find(s => s.id === msg.id);
         if (s) {
@@ -474,6 +498,7 @@ function buildActionLog(steps) {
     page: s.pageTitle,
     url: s.url || undefined,
     note: s.note || undefined,
+    narration: s.narration || undefined,
     has_screenshot: stepHasShot(s)
   }));
 }
@@ -490,7 +515,8 @@ Rules:
 5. Merge trivially-related actions into one instruction where it improves readability (e.g. typing into a field then pressing Enter), but keep every screenshot token you use tied to its correct step number.
 6. Steps with source "desktop-capture" have NO semantic label — the attached screenshot with the matching step number is the source of truth. Describe only the action or state that is clearly visible; if ambiguous, describe the visible state conservatively rather than guessing.
 7. Infer Prerequisites from the pages and applications used (required system access, accounts). Be conservative — mark inferences as such.
-8. Use the operator's notes (the "note" fields) as authoritative context.`;
+8. Use the operator's notes (the "note" fields) as authoritative context.
+9. The "narration" fields are the operator's spoken commentary transcribed during recording. Use them as authoritative intent and context — the "why" behind steps, prerequisites, warnings — but attribute nothing to the UI from them: element labels in the action log remain the only ground truth for what is on screen.`;
 
 // Everything generateSOP would send, without sending it. The privacy audit
 // renders this same object, so the audit is the real payload by construction.
@@ -557,7 +583,8 @@ function buildAutomationLog(steps) {
     app: s.app || undefined,
     window: (s.type === "uia" || s.type === "desktop") ? s.pageTitle : undefined,
     url: s.url || undefined,
-    note: s.note || undefined
+    note: s.note || undefined,
+    narration: s.narration || undefined
   }));
 }
 
@@ -821,6 +848,7 @@ async function buildAudit(target, userContext, recordingId, recordingIdB) {
     shotsCaptured: stats.shotSteps,             // step numbers that have a local screenshot
     shotsAttached: req.shots.map(s => s.n),     // step numbers whose pixels would be sent
     maskedSteps: stats.maskedSteps,             // masked values: label only, value never captured
+    narratedSteps: stats.narratedSteps,         // step numbers whose spoken-narration transcript is sent
     system: req.system,
     userText: req.userText,
     body                                        // exact request body, images redacted, no credentials

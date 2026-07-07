@@ -129,14 +129,37 @@ eq("summarizeDiff counts",
   "2 unchanged, 1 relabeled, 1 added, 1 removed");
 eq("summarizeDiff identical", PTCommon.summarizeDiff([{ op: "unchanged" }]), "1 unchanged");
 
+// ── mapNarration ─────────────────────────────────────────────────────────
+// Audio starts at t=1000ms; steps at 3000 and 8000.
+const narrSteps = [{ id: "s1", ts: 3000 }, { id: "s2", ts: 8000 }];
+eq("narration segment after a step attaches to it",
+  PTCommon.mapNarration([{ start: 3, end: 5, text: "now save it" }], narrSteps, 1000),
+  [{ id: "s1", narration: "now save it" }]); // ends at 1000+5000=6000 → latest step ≤ 6000 is s1
+eq("narration before the first step attaches to step 1",
+  PTCommon.mapNarration([{ start: 0, end: 1, text: "first we open the form" }], narrSteps, 1000),
+  [{ id: "s1", narration: "first we open the form" }]);
+eq("narration in a later gap attaches to the previous step",
+  PTCommon.mapNarration([{ start: 8, end: 10, text: "then submit" }], narrSteps, 1000),
+  [{ id: "s2", narration: "then submit" }]); // ends at 11000 → s2
+eq("multi-segment concatenation per step",
+  PTCommon.mapNarration([
+    { start: 3, end: 4, text: "check the value" },
+    { start: 4.5, end: 5.5, text: "before saving" }
+  ], narrSteps, 1000),
+  [{ id: "s1", narration: "check the value before saving" }]);
+eq("empty segments → empty result", PTCommon.mapNarration([], narrSteps, 1000), []);
+eq("blank text segments are dropped",
+  PTCommon.mapNarration([{ start: 3, end: 5, text: "   " }], narrSteps, 1000), []);
+
 // ── auditStats ───────────────────────────────────────────────────────────
 const steps = [
   { n: 1, label: "Username", masked: false, shot: "data:image/jpeg;base64,x" },
   { n: 2, label: "Password", masked: true, hasShot: true },
-  { n: 3, label: "Sign in", masked: false }
+  { n: 3, label: "Sign in", masked: false, narration: "click it" }
 ];
 eq("auditStats masked steps", PTCommon.auditStats(steps).maskedSteps, [{ n: 2, label: "Password" }]);
 eq("auditStats shot steps (inline + IDB)", PTCommon.auditStats(steps).shotSteps, [1, 2]);
+eq("auditStats narrated steps", PTCommon.auditStats(steps).narratedSteps, [3]);
 eq("auditStats step count", PTCommon.auditStats(steps).stepCount, 3);
 
 const h = document.createElement("h1");

@@ -14,7 +14,10 @@ function syncProviderUI() {
 async function load() {
   const d = await chrome.storage.local.get({
     provider: "anthropic", apiKey: "", model: "", customUrl: "",
-    includeScreenshots: false, captureValues: false, maxSteps: 150
+    includeScreenshots: false, captureValues: false, maxSteps: 150,
+    transcribeUrl: "https://api.openai.com/v1/audio/transcriptions",
+    transcribeModel: "whisper-1",
+    transcribeKey: ""
   });
   $("provider").value = d.provider;
   $("apiKey").value = d.apiKey;
@@ -23,6 +26,9 @@ async function load() {
   $("includeScreenshots").checked = d.includeScreenshots;
   $("captureValues").checked = d.captureValues;
   $("maxSteps").value = d.maxSteps;
+  $("transcribeUrl").value = d.transcribeUrl;
+  $("transcribeModel").value = d.transcribeModel;
+  $("transcribeKey").value = d.transcribeKey;
   syncProviderUI();
 }
 
@@ -37,7 +43,10 @@ $("save").addEventListener("click", async () => {
     customUrl: $("customUrl").value.trim(),
     includeScreenshots: $("includeScreenshots").checked,
     captureValues: $("captureValues").checked,
-    maxSteps
+    maxSteps,
+    transcribeUrl: $("transcribeUrl").value.trim(),
+    transcribeModel: $("transcribeModel").value.trim() || "whisper-1",
+    transcribeKey: $("transcribeKey").value.trim()
   });
   $("maxSteps").value = maxSteps;
   $("saved").hidden = false;

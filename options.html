@@ -82,6 +82,24 @@ button { background: var(--accent); color: #05221E; border: 0; border-radius: 6p
   </fieldset>
 
   <fieldset>
+    <legend>Voice narration (transcription endpoint)</legend>
+    <label for="transcribeUrl">Transcription URL</label>
+    <input type="text" id="transcribeUrl" placeholder="https://api.openai.com/v1/audio/transcriptions">
+    <div class="hint">Any OpenAI-compatible <code>/v1/audio/transcriptions</code> endpoint — OpenAI, Groq,
+      LocalAI, or a self-hosted faster-whisper server. Audio is sent here once for transcription and is
+      never stored; only the transcript text becomes part of the recording.
+      <span class="warn">Some self-hosted servers accept only wav/mp3 — Chrome records webm/opus.</span></div>
+
+    <label for="transcribeModel">Transcription model</label>
+    <input type="text" id="transcribeModel" placeholder="whisper-1">
+    <div class="hint">Must support <code>response_format=verbose_json</code> (segment timestamps) —
+      whisper-1 and whisper.cpp-style servers do; OpenAI's gpt-4o-transcribe does not.</div>
+
+    <label for="transcribeKey">Transcription API key (optional)</label>
+    <input type="password" id="transcribeKey" autocomplete="off" placeholder="blank = use the provider API key above">
+  </fieldset>
+
+  <fieldset>
     <legend>Capture</legend>
     <label for="maxSteps">Max steps per session</label>
     <input type="text" id="maxSteps" inputmode="numeric" placeholder="150">

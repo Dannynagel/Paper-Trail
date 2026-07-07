@@ -144,11 +144,36 @@ const PTCommon = (() => {
     return parts.join(", ");
   }
 
+  // Attribute Whisper verbose_json segments to steps by timestamp. A segment
+  // belongs to the LATEST step whose ts ≤ the segment's absolute end time —
+  // narration follows the action it describes. End-inclusive on purpose: nav
+  // steps are timestamped before their paint-settle delay. Segments ending
+  // before the first step attach to step 1.
+  function mapNarration(segments, steps, audioStartTs) {
+    if (!segments || !segments.length || !steps || !steps.length) return [];
+    const ordered = steps.slice().sort((a, b) => a.ts - b.ts);
+    const texts = new Map(); // step id -> [text]
+    for (const seg of segments) {
+      const text = String(seg.text || "").trim();
+      if (!text) continue;
+      const endAbs = audioStartTs + (seg.end || 0) * 1000;
+      let owner = ordered[0];
+      for (const s of ordered) {
+        if (s.ts <= endAbs) owner = s;
+        else break;
+      }
+      if (!texts.has(owner.id)) texts.set(owner.id, []);
+      texts.get(owner.id).push(text);
+    }
+    return [...texts.entries()].map(([id, parts]) => ({ id, narration: parts.join(" ") }));
+  }
+
   // Privacy-audit stats over a step array (pure; used by background + tests).
   function auditStats(steps) {
     const maskedSteps = steps.filter(s => s.masked).map(s => ({ n: s.n, label: s.label }));
     const shots = steps.filter(s => s.shot || s.hasShot).map(s => s.n);
-    return { maskedSteps, shotSteps: shots, stepCount: steps.length };
+    const narratedSteps = steps.filter(s => s.narration).map(s => s.n);
+    return { maskedSteps, shotSteps: shots, narratedSteps, stepCount: steps.length };
   }
 
   // Blob → data URL (panel/content contexts; the service worker has its own).
@@ -163,6 +188,6 @@ const PTCommon = (() => {
 
   return {
     normLabel, labelMatches, anchorList, samePage, sameOrigin, urlHost,
-    summarizeVerify, diffSteps, summarizeDiff, auditStats, blobToDataUrl
+    summarizeVerify, diffSteps, summarizeDiff, mapNarration, auditStats, blobToDataUrl
   };
 })();

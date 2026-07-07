@@ -34,6 +34,8 @@ async function refresh() {
   const resp = await send({ cmd: "getState" });
   if (!resp) return;
   currentSession = resp.session;
+  // Recording stopped by any path (button, shortcut, clear) → wrap up narration.
+  if (!currentSession.recording && typeof micStream !== "undefined" && micStream) stopMic();
   render();
 }
 
@@ -96,6 +98,8 @@ function render() {
         ${step.shot ? `<img src="${step.shot}" alt="Step ${step.n} screenshot" loading="lazy">` :
           step.hasShot ? `<img data-shot-id="${step.id}" alt="Step ${step.n} screenshot" loading="lazy">` :
           (step.shotDropped ? `<div class="masked">screenshot removed</div>` : "")}
+        ${step.narration ? `<div class="narration">🎙 <em>${esc(step.narration)}</em>
+          <button data-act="dropNarration" data-id="${step.id}" title="Remove narration">✕</button></div>` : ""}
         <textarea class="note" placeholder="Add note for the writer…" data-id="${step.id}">${esc(step.note)}</textarea>
       </div>
       <div class="tools">
@@ -354,10 +358,132 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 send({ cmd: "nativeStatus" }).then(r => { if (r && r.connected) setNativeUI(true, ""); });
 
+// ── Voice narration (mic → Whisper-style endpoint; audio never persisted) ──
+// The MediaRecorder lives in this panel document: closing the panel drops the
+// audio (steps are unaffected). Raw audio never touches IndexedDB or storage;
+// only the transcript text becomes part of the recording.
+let micStream = null, micRecorder = null, micChunks = [], micStartTs = 0;
+let pendingAudio = null; // { blob, startTs } — panel-local retry buffer only
+
+async function startMic() {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    // Side panels can't always render Chrome's permission prompt — grant from a tab.
+    chrome.tabs.create({ url: chrome.runtime.getURL("mic.html") });
+    return;
+  }
+  micStream = stream;
+  const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
+  micRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  micChunks = [];
+  micRecorder.addEventListener("dataavailable", (e) => {
+    if (e.data && e.data.size) micChunks.push(e.data);
+  });
+  micRecorder.addEventListener("stop", onMicStopped);
+  micStartTs = Date.now();
+  micRecorder.start();
+  if (!currentSession.recording) await send({ cmd: "start" });
+  renderMicStatus();
+  refresh();
+}
+
+function stopMic() {
+  if (micRecorder && micRecorder.state !== "inactive") {
+    micRecorder.stop(); // onMicStopped assembles the blob and transcribes
+  } else {
+    cleanupMicStream();
+    renderMicStatus();
+  }
+}
+
+function cleanupMicStream() {
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  micStream = null;
+}
+
+async function onMicStopped() {
+  const type = (micRecorder && micRecorder.mimeType) || "audio/webm";
+  const blob = new Blob(micChunks, { type });
+  const startTs = micStartTs;
+  micChunks = [];
+  micRecorder = null;
+  cleanupMicStream();
+  renderMicStatus();
+  if (!blob.size) return;
+  pendingAudio = { blob, startTs };
+  await transcribePending();
+}
+
+async function transcribePending() {
+  if (!pendingAudio) return;
+  const gs = $("genStatus");
+  gs.hidden = false; gs.className = "status"; gs.textContent = "Transcribing narration…";
+  try {
+    const items = await transcribeAudio(pendingAudio.blob, pendingAudio.startTs);
+    if (items.length) await send({ cmd: "setNarration", items });
+    gs.hidden = true;
+    pendingAudio = null; // audio dies here — never persisted
+    refresh();
+  } catch (e) {
+    gs.className = "status err";
+    gs.innerHTML = `Transcription failed: ${esc(String(e.message || e))} ` +
+      `<button id="btnRetryTx" class="ghost" style="padding:1px 6px;font-size:10px">Retry</button>`;
+    document.getElementById("btnRetryTx").addEventListener("click", transcribePending, { once: true });
+  }
+}
+
+async function transcribeAudio(blob, startTs) {
+  const st = await chrome.storage.local.get({
+    transcribeUrl: "https://api.openai.com/v1/audio/transcriptions",
+    transcribeModel: "whisper-1",
+    transcribeKey: "",
+    apiKey: ""
+  });
+  if (!st.transcribeUrl) throw new Error("No transcription URL configured — open ⚙ options.");
+
+  const ext = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "mp4" : "webm";
+  const form = new FormData();
+  form.append("file", blob, `narration.${ext}`);
+  form.append("model", st.transcribeModel || "whisper-1");
+  form.append("response_format", "verbose_json");
+  const headers = {};
+  const key = st.transcribeKey || st.apiKey;
+  if (key) headers["Authorization"] = `Bearer ${key}`;
+
+  const resp = await fetch(st.transcribeUrl, { method: "POST", headers, body: form });
+  if (!resp.ok) throw new Error(`Transcription API ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  const data = await resp.json();
+  if (!Array.isArray(data.segments)) {
+    throw new Error("Endpoint returned no segment timestamps — use a whisper-1-compatible model (response_format=verbose_json).");
+  }
+  const state = await send({ cmd: "getState" });
+  return PTCommon.mapNarration(data.segments, state.session.steps, startTs);
+}
+
+function renderMicStatus() {
+  const el = $("micStatus");
+  const btn = $("btnMic");
+  if (micStream) {
+    el.hidden = false;
+    el.textContent = "MIC ► narrating — keep this panel open; closing it drops the audio";
+    btn.textContent = "🎤 Stop narrating";
+    btn.classList.add("active-rec");
+  } else {
+    el.hidden = true;
+    btn.textContent = "🎤 Narrate";
+    btn.classList.remove("active-rec");
+  }
+}
+
+$("btnMic").addEventListener("click", () => (micStream ? stopMic() : startMic()));
+
 $("steps").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-act]");
   if (btn) {
-    await send({ cmd: btn.dataset.act === "delete" ? "deleteStep" : "dropShot", id: btn.dataset.id });
+    const cmd = { delete: "deleteStep", dropShot: "dropShot", dropNarration: "dropNarration" }[btn.dataset.act];
+    if (cmd) await send({ cmd, id: btn.dataset.id });
     refresh();
     return;
   }
@@ -529,6 +655,12 @@ Built locally on ${new Date(a.generatedAt).toLocaleString()}. Producing this aud
 ## Masked values
 
 ${masked}
+
+## Narration
+
+${(a.narratedSteps && a.narratedSteps.length)
+  ? `- ${a.narratedSteps.length} step(s) carry spoken-narration transcripts (steps ${a.narratedSteps.join(", ")}) — that text is part of the user message below. The audio itself was never stored and is not sent.`
+  : "- No narration on this recording"}
 
 ## Credentials
 
