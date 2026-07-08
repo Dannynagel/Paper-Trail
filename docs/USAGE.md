@@ -1,6 +1,6 @@
 # Paper Trail — Usage Guide
 
-From a live session to an illustrated SOP (or a runnable automation) in five steps: record → review → annotate → generate → export.
+From a live session to an illustrated SOP (or a runnable automation) in five steps: record → review → annotate → generate → export. Saved recordings then keep working for you: verify their anchors against the live UI, walk someone through them live, or diff two versions for change management (§5).
 
 ---
 

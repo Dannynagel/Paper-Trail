@@ -1,6 +1,6 @@
 # Paper Trail — Design Document
 
-**Version 1.0.0 · Chrome Extension (Manifest V3) + optional Windows UIA companion**
+**Version 1.3.0 · Chrome Extension (Manifest V3) + Windows UIA companion (recommended for desktop capture)**
 
 Paper Trail converts a live browser or desktop session into (a) an illustrated Standard Operating Procedure and (b) optionally, an RPA artifact — by capturing *semantic* actions rather than video.
 
