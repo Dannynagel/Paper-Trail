@@ -86,6 +86,8 @@ The service worker owns the session and persists it to `chrome.storage.session` 
 
 ## 3. Capture engines
 
+Preference order for desktop work: the UIA companion (3.3) is recommended where it can run — ground-truth anchors, every click — with window-capture (3.2, ideally paired with caption-on-capture) as the no-install fallback and the only option off Windows.
+
 ### 3.1 Browser DOM (content.js)
 
 Capture-phase listeners (`click`, `change`, `submit`, `keydown`) fire before SPAs can swallow events. Label extraction resolves in accessibility order:

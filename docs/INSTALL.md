@@ -78,9 +78,11 @@ Set the transcription URL in options accordingly (model `whisper-1`-compatible n
 
 ---
 
-## 3. Install the UIA companion (optional, Windows)
+## 3. Install the UIA companion (recommended, Windows)
 
-Adds semantic capture for native desktop apps. Requires Windows PowerShell 5.1+ (built into Windows 10/11). Per-user install, **no admin rights needed**.
+Adds semantic capture for native desktop apps — the recommended way to record desktop procedures: every click becomes a labeled step with automation-ready anchors, same privacy rules as web capture. Requires Windows PowerShell 5.1+ (built into Windows 10/11). Per-user install, **no admin rights needed**.
+
+Skip it only when you can't install software or aren't on Windows — window-capture mode plus the *Caption desktop frames at capture* option is the no-install fallback (see [USAGE.md](USAGE.md#desktop-apps--window-capture-mode-fallback-no-install)).
 
 ```powershell
 cd native-host

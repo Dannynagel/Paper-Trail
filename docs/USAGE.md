@@ -19,20 +19,24 @@ Field values are masked by default — steps read "Enter a value in **Field**" w
 
 Press **🎤 Narrate** while recording (it starts the recording if idle) and talk through what you're doing — the *why*, prerequisites, warnings. When you stop, the audio is transcribed through the OpenAI-compatible Whisper endpoint configured in options (works with local Whisper servers), and each spoken segment attaches to the step it followed as a 🎙 row. Generated SOPs use narration as authoritative intent context. Privacy: the audio is sent once for transcription and **never stored** — only the transcript text becomes part of the recording, and the audit lists exactly which steps carry it. For a free local transcription server, see [INSTALL.md §2 — Fully local setup](INSTALL.md#fully-local-setup-free-models). Keep the panel open while narrating; closing it drops the audio (never the steps). If the mic prompt doesn't appear, a helper tab opens to grant the permission.
 
-### Desktop apps — window-capture mode
+### Desktop apps — UIA companion (recommended, Windows)
+
+The companion is the preferred way to record desktop procedures: every click is captured (not inferred from screen changes) as a real semantic step — `Click **Apply** (button) — mmc` — with ground-truth anchors (Name, ControlType, AutomationId) that make the recording automation-ready, plus a ring-annotated window screenshot. Same privacy rules as web steps: labels are text, pixels stay local.
+
+With the companion installed ([INSTALL.md §3](INSTALL.md#3-install-the-uia-companion-recommended-windows)), click **⚡ UIA companion**. Toggle it off to disconnect (the host process exits).
+
+### Desktop apps — window-capture mode (fallback, no install)
+
+Use this when the companion isn't an option: nothing to install, works on macOS/Linux, and covers apps that deny UIA reads (elevated windows, Citrix/VDI, canvas UIs).
 
 1. Click **🖥 Record a window** and pick the app in Chrome's picker.
 2. Work in the app. A frame is captured automatically whenever the screen changes *and settles* — one clean frame per state transition. Recording starts automatically if it wasn't running.
-3. **Ctrl+Shift+9** forces a capture and works globally, even while the desktop app has focus.
+3. **Ctrl+Shift+9** forces a capture and works globally, even while the desktop app has focus (clicks that don't change the screen are otherwise missed).
 4. Click **🖥 Stop window capture** (or the browser's "Stop sharing" bar).
 
-These steps have no semantic labels, so their frames are attached at generation time — that's the one exception to the no-pixels default. Add a note to any frame whose meaning isn't obvious.
+These steps have no semantic labels, so their frames are attached at generation time — that's the one exception to the no-pixels default. Add a note to any frame whose meaning isn't obvious, and note that generated automation gets "manual anchor required" placeholders for these steps (only the companion captures machine-readable desktop anchors).
 
-**Caption desktop frames at capture** (options, off by default) changes *when* those pixels travel, not *whether*: each frame is described by your vision model the moment it's captured (a 🖼→📝 caption appears under the step), and generation then sends the caption text instead of the frame. Two effects: generation for desktop-heavy recordings becomes as fast as web-only ones (the vision work is amortized across the recording session, ~1–4 s per frame in the background), and the generation request is fully text-only. Requires the model endpoint to be reachable while recording; if a caption fails, that frame simply attaches at generation as before.
-
-### Desktop apps — UIA companion (semantic)
-
-With the companion installed ([INSTALL.md §3](INSTALL.md#3-install-the-uia-companion-optional-windows)), click **⚡ UIA companion**. Desktop clicks arrive as real semantic steps — `Click **Apply** (button) — mmc` — with ring-annotated window screenshots, same privacy rules as web steps. Toggle it off to disconnect (the host process exits).
+**Pair it with "Caption desktop frames at capture"** (options, off by default): each frame is described by your vision model the moment it's captured (a 🖼→📝 caption appears under the step), and generation then sends the caption text instead of the frame. Desktop-heavy recordings generate as fast as web-only ones (the vision work is amortized across the recording session, ~1–4 s per frame in the background) and the generation request stays text-only. Requires the model endpoint to be reachable while recording; if a caption fails, that frame simply attaches at generation as before.
 
 ---
 
