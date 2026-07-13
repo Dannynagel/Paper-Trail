@@ -463,6 +463,175 @@ async function stopRecording() {
   await broadcastState();
 }
 
+// ── Drift sentinel ──────────────────────────────────────────────────────────
+// Hourly alarm → re-verify watched recordings' anchors against the live site
+// in an INACTIVE tab, report-only. Runs are short, sequential, and message-
+// driven (each round-trip resets the MV3 idle timer); an interrupted run is
+// simply retried on the next alarm.
+let sentinelBusy = false;
+
+async function ensureSentinelAlarm() {
+  const metas = await PTDB.listRecordings().catch(() => []);
+  if (metas.some(m => m.watch)) {
+    await chrome.alarms.create("pt-sentinel", { periodInMinutes: 60 });
+  } else {
+    await chrome.alarms.clear("pt-sentinel");
+  }
+}
+
+// The "!" badge must never clobber the REC badge.
+function setSentinelBadge(on) {
+  if (session.recording) return;
+  chrome.action.setBadgeText({ text: on ? "!" : "" });
+  if (on) chrome.action.setBadgeBackgroundColor({ color: "#E8B84B" });
+}
+
+function sentinelAlert(title, counts, summary) {
+  const n = counts.fallback + counts.missing + counts.unreachable;
+  try {
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: "icons/icon128.png",
+      title: "Paper Trail — drift sentinel",
+      message: `SOP "${title}" drifted: ${n} anchor problem(s). ${summary}`
+    });
+  } catch (e) { /* notification is best-effort */ }
+  setSentinelBadge(true);
+}
+
+function sentinelWaitLoad(tabId, ms) {
+  return new Promise((res) => {
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      chrome.tabs.onUpdated.removeListener(onUpd);
+      res(ok);
+    };
+    const onUpd = (id, info) => {
+      if (id === tabId && info.status === "complete") finish(true);
+    };
+    chrome.tabs.onUpdated.addListener(onUpd);
+    setTimeout(() => finish(false), ms);
+  });
+}
+
+// Same origin+path tolerance and 20 s timeout as the panel's Verify mode.
+async function sentinelEnsureAt(tabId, url) {
+  let tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return { reached: false, finalUrl: "" };
+  if (PTCommon.samePage(tab.url, url) && tab.status === "complete") {
+    return { reached: true, finalUrl: tab.url };
+  }
+  const done = sentinelWaitLoad(tabId, 20000);
+  await chrome.tabs.update(tabId, { url });
+  const ok = await done;
+  if (!ok) return { reached: false, finalUrl: "" };
+  await new Promise(r => setTimeout(r, 600));
+  tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return { reached: false, finalUrl: "" };
+  return { reached: PTCommon.sameOrigin(tab.url, url), finalUrl: tab.url || "" };
+}
+
+async function sentinelProbe(tabId, step) {
+  let frames = [];
+  try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch (e) {}
+  if (!frames || !frames.length) frames = [{ frameId: 0 }];
+  const rank = { found: 3, fallback: 2, missing: 1 };
+  let best = { status: "missing" };
+  for (const f of frames) {
+    const r = await new Promise((res) => {
+      chrome.tabs.sendMessage(tabId, {
+        cmd: "probeStep",
+        step: { selector: step.selector, anchors: step.anchors, label: step.label, kind: step.kind, type: step.type }
+      }, { frameId: f.frameId }, (resp) => {
+        void chrome.runtime.lastError;
+        res(resp || null);
+      });
+    });
+    if (!r) continue;
+    if (rank[r.status] > rank[best.status]) best = r;
+    if (best.status === "found") break;
+  }
+  return best;
+}
+
+async function sentinelVerify(rec) {
+  const grades = [];
+  let tabId = null;
+  try {
+    for (const s of rec.steps) {
+      const verifiable = s.type === "nav" ? !!s.url : !!(s.selector && s.url);
+      if (!verifiable) { grades.push("na"); continue; }
+
+      let nav;
+      if (tabId === null) {
+        const created = await chrome.tabs.create({ url: s.url, active: false });
+        tabId = created.id;
+        const ok = await sentinelWaitLoad(tabId, 20000);
+        await new Promise(r => setTimeout(r, 600));
+        const t = ok ? await chrome.tabs.get(tabId).catch(() => null) : null;
+        nav = { reached: !!(t && PTCommon.sameOrigin(t.url, s.url)), finalUrl: t ? t.url : "" };
+      } else {
+        nav = await sentinelEnsureAt(tabId, s.url);
+      }
+      if (!nav.reached) { grades.push("unreachable"); continue; }
+
+      if (s.type === "nav") {
+        grades.push(PTCommon.samePage(nav.finalUrl, s.url) ? "found" : "fallback");
+        continue;
+      }
+      const probe = await sentinelProbe(tabId, s);
+      grades.push(probe.status || "missing");
+    }
+  } finally {
+    if (tabId !== null) chrome.tabs.remove(tabId).catch(() => {});
+  }
+
+  const summary = PTCommon.summarizeVerify(grades);
+  const count = (g) => grades.filter(x => x === g).length;
+  const counts = { fallback: count("fallback"), missing: count("missing"), unreachable: count("unreachable") };
+
+  const fresh = await PTDB.getRecording(rec.id);
+  if (!fresh) return summary;
+  fresh.lastVerified = { ts: Date.now(), summary: summary + " — sentinel" };
+  if (fresh.watch) {
+    const prev = fresh.watch.lastCounts || { fallback: 0, missing: 0, unreachable: 0 };
+    // Alert only on NEW problems vs the previous sweep; a site that stays
+    // unreachable (login wall) or stays drifted never re-notifies.
+    const worse = (counts.fallback + counts.missing) > (prev.fallback + prev.missing) ||
+                  counts.unreachable > prev.unreachable;
+    fresh.watch.lastRun = Date.now();
+    fresh.watch.lastCounts = counts;
+    if (worse) {
+      fresh.watch.lastNotified = Date.now();
+      sentinelAlert(fresh.title, counts, summary);
+    }
+  }
+  fresh.updatedAt = Date.now();
+  await PTDB.saveRecording(fresh);
+  return summary;
+}
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== "pt-sentinel") return;
+  await hydrate();
+  if (session.recording || sentinelBusy) return; // never open tabs mid-recording
+  sentinelBusy = true;
+  try {
+    const metas = await PTDB.listRecordings();
+    for (const m of metas) {
+      if (!m.watch) continue;
+      const period = (m.watch.periodHours || 24) * 3600 * 1000;
+      if (Date.now() - (m.watch.lastRun || 0) < period) continue;
+      const rec = await PTDB.getRecording(m.id);
+      if (rec && rec.watch) await sentinelVerify(rec);
+    }
+  } finally {
+    sentinelBusy = false;
+  }
+});
+
 // ── Message router ─────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
@@ -565,6 +734,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false });
         break;
       }
+      case "watchChanged":
+        await ensureSentinelAlarm();
+        sendResponse({ ok: true });
+        break;
+      case "sentinelRunNow": {
+        // Deterministic trigger for tests and a manual "check now".
+        const rec = await PTDB.getRecording(msg.recId);
+        if (!rec) { sendResponse({ ok: false, error: "Recording not found." }); break; }
+        const summary = await sentinelVerify(rec);
+        sendResponse({ ok: true, summary });
+        break;
+      }
+      case "libraryOpened":
+        setSentinelBadge(false);
+        sendResponse({ ok: true });
+        break;
       case "nativeConnect":
         sendResponse({ ok: connectNative() });
         break;
@@ -1084,6 +1269,8 @@ async function buildAudit(target, userContext, recordingId, recordingIdB, extras
   };
 }
 
-// Keep badge accurate across worker restarts
+// Keep badge accurate across worker restarts; re-assert the sentinel alarm
+// (idempotent) so watches survive browser and extension restarts.
 chrome.runtime.onStartup?.addListener(async () => { await hydrate(); setBadge(session.recording); });
 hydrate().then(() => setBadge(session.recording));
+ensureSentinelAlarm().catch(() => {});

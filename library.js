@@ -17,6 +17,7 @@ function libDate(ts) {
 
 async function renderLibrary() {
   const wrap = $("libList");
+  send({ cmd: "libraryOpened" }); // clears the sentinel "!" badge
   const list = await PTDB.listRecordings();
   if (!list.length) {
     wrap.innerHTML = `<div class="empty">No saved recordings yet.<br>
@@ -46,6 +47,10 @@ async function renderLibrary() {
           ${canVerify ? `<button data-act="verify" title="Check anchors against the live site">✓ Verify</button>` : ""}
           <button data-act="regen" title="Generate from this recording">Re-gen</button>
           ${canCompare ? `<button data-act="compare" title="Diff against another recording">⇄ Compare</button>` : ""}
+          <button data-act="watch" title="${r.watch
+            ? "Drift sentinel is watching this SOP — click to stop"
+            : "Watch for drift: re-verify anchors every 24 h and alert on new problems"}"${
+            r.watch ? ` class="active"` : ""}>⏰${r.watch ? " on" : ""}</button>
           ${canAudit ? `<button data-act="audit" title="Preview exactly what would be sent to the model">Audit</button>` : ""}
           <button data-act="rename">Rename</button>
           <button data-act="del" class="danger" title="Delete recording">✕</button>
@@ -361,6 +366,17 @@ $("libList").addEventListener("click", async (e) => {
     case "run":
       if (typeof startAutopilot === "function") startAutopilot(id);
       break;
+    case "watch": {
+      const rec = await PTDB.getRecording(id);
+      if (!rec) break;
+      if (rec.watch) delete rec.watch;
+      else rec.watch = { periodHours: 24, lastRun: 0, lastNotified: 0 };
+      rec.updatedAt = Date.now();
+      await PTDB.saveRecording(rec);
+      await send({ cmd: "watchChanged" });
+      renderLibrary();
+      break;
+    }
     case "audit":
       if (typeof startAudit === "function") startAudit(id);
       break;

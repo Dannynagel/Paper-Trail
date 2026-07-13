@@ -13,7 +13,9 @@
     "commands",
     "nativeMessaging",
     "webNavigation",
-    "webRequest"
+    "webRequest",
+    "alarms",
+    "notifications"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {
