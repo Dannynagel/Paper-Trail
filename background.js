@@ -792,6 +792,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         break;
       }
+      case "generateBranch": {
+        try {
+          const md = await generateBranch(msg.trunkId, msg.context || "");
+          sendResponse({ ok: true, markdown: md });
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e.message || e) });
+        }
+        break;
+      }
       default: sendResponse({ ok: false });
     }
   })();
@@ -1136,6 +1145,62 @@ async function generateDiff(idA, idB, userContext) {
   return callOpenAI(st, req.system, req.userText, req.shots);
 }
 
+// ── Branch-aware SOP from a trunk recording + tagged variants ───────────────
+const BRANCH_PROMPT = `You are a technical writer producing ONE branch-aware Standard Operating Procedure (SOP) in Markdown that covers a base procedure (the TRUNK) and its recorded VARIANTS, for a regulated enterprise environment.
+
+You will receive the trunk's JSON action log (real element labels — ground truth) and, for each variant, its label and a list of diff entries computed locally against the trunk. Entry ops: "unchanged", "relabeled" (same control, new label), "added" (only in the variant), "removed" (trunk step the variant skips).
+
+Rules:
+1. Output ONLY the Markdown document. No preamble, no code fences around the whole document.
+2. Structure: # Title, ## Purpose, ## Scope, ## Prerequisites, ## Procedure (numbered), ## Notes (omit if nothing to add).
+3. Produce ONE procedure for the whole process. Where a variant diverges, insert an explicit numbered decision point of the form "If <condition>: continue at step N" — infer the condition from the variant's label and step texts, and mark every such inference as an inference.
+4. Give each branch's steps a labeled sub-sequence (e.g. 6a.1, 6a.2 for the first branch) and state explicitly where the branch rejoins the trunk.
+5. Bold every UI element name exactly as given. Do not invent, rename, or "correct" element labels, and do not add steps beyond the provided entries.
+6. End the document with a \`\`\`mermaid flowchart summarizing the trunk, every decision point, and every branch path.`;
+
+// Variant payload carries op + step text only — never anchors, values, or URLs.
+function buildBranchRequest(trunk, variants, userContext) {
+  const plain = (t) => String(t || "").replace(/\*\*/g, "");
+  const varPayload = variants.map(v => ({
+    label: v.rec.variantLabel || v.rec.title,
+    entries: v.entries.map(e => ({
+      op: e.op,
+      n_trunk: e.a ? e.a.n : undefined,
+      n_variant: e.b ? e.b.n : undefined,
+      text: plain((e.b || e.a).text),
+      text_trunk: e.op === "relabeled" ? plain(e.a.text) : undefined,
+      text_variant: e.op === "relabeled" ? plain(e.b.text) : undefined
+    }))
+  }));
+  let userText = `Create ONE branch-aware SOP for this procedure and its variants.\n\n` +
+    `TRUNK "${trunk.title}" ACTION LOG:\n${JSON.stringify(buildActionLog(trunk.steps), null, 1)}\n\n` +
+    `VARIANTS (diff entries vs the trunk, computed locally):\n${JSON.stringify(varPayload, null, 1)}`;
+  if (userContext) userText += `\n\nOPERATOR CONTEXT:\n${userContext}`;
+  return { system: BRANCH_PROMPT, userText, shots: [] };
+}
+
+async function loadBranchSet(trunkId) {
+  const trunk = await PTDB.getRecording(trunkId);
+  if (!trunk) throw new Error("Recording not found in library.");
+  const metas = await PTDB.listRecordings();
+  const variants = [];
+  for (const m of metas.filter(x => x.variantOf === trunkId)) {
+    const rec = await PTDB.getRecording(m.id);
+    if (rec) variants.push({ rec, entries: PTCommon.diffSteps(trunk.steps, rec.steps) });
+  }
+  if (!variants.length) throw new Error("No variants are tagged on this recording.");
+  return { trunk, variants };
+}
+
+async function generateBranch(trunkId, userContext) {
+  const st = await getSettings();
+  requireEndpoint(st);
+  const { trunk, variants } = await loadBranchSet(trunkId);
+  const req = buildBranchRequest(trunk, variants, userContext);
+  if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
+  return callOpenAI(st, req.system, req.userText, req.shots);
+}
+
 // ── Provider transport (bodies shared with the privacy audit) ──────────────
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
@@ -1235,6 +1300,10 @@ async function buildAudit(target, userContext, recordingId, recordingIdB, extras
     const { recA, recB, entries } = await loadDiffPair(recordingId, recordingIdB);
     steps = []; // the diff payload carries step text only — no anchors, values, or shots
     req = buildDiffRequest(recA, recB, entries, userContext);
+  } else if (target === "branch") {
+    const { trunk, variants } = await loadBranchSet(recordingId);
+    steps = trunk.steps; // trunk action log is sent; variant entries are text-only
+    req = buildBranchRequest(trunk, variants, userContext);
   } else {
     const src = await resolveSource(recordingId);
     steps = src.steps;

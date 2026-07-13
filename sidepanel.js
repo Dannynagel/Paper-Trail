@@ -677,7 +677,8 @@ function auditMarkdown(a) {
     pwtest: "Playwright regression test",
     psweb: "Pure-HTTP PowerShell (Invoke-WebRequest / Invoke-RestMethod)",
     aa: "Automation Anywhere build sheet",
-    diff: "Change-management summary (recording diff)"
+    diff: "Change-management summary (recording diff)",
+    branch: "Branch-aware SOP (trunk + variants)"
   }[a.target] || a.target;
 
   return `# Privacy Audit — what leaves this machine

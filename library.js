@@ -5,6 +5,7 @@
 
 let libObjUrls = [];
 let libCompareA = null; // first pick of a pending ⇄ Compare
+let libVariantA = null; // pending ⑂ Variant: the recording being tagged
 
 function libRevokeUrls() {
   for (const u of libObjUrls) URL.revokeObjectURL(u);
@@ -25,38 +26,63 @@ async function renderLibrary() {
     $("libDetail").hidden = true;
     return;
   }
-  const canVerify = typeof startVerify === "function";
-  const canWalk = typeof startWalkthrough === "function";
-  const canAudit = typeof startAudit === "function";
-  const canCompare = typeof startCompare === "function" && list.length > 1;
-  const canRun = typeof startAutopilot === "function";
+  const caps = {
+    verify: typeof startVerify === "function",
+    walk: typeof startWalkthrough === "function",
+    audit: typeof startAudit === "function",
+    compare: typeof startCompare === "function" && list.length > 1,
+    run: typeof startAutopilot === "function"
+  };
 
-  wrap.innerHTML = list.map(r => `
-    <div class="step lib-row" data-id="${r.id}">
+  // Group variants under their trunk; a variant whose trunk was deleted
+  // floats back to the top level.
+  const ids = new Set(list.map(r => r.id));
+  const variantsOf = new Map();
+  for (const r of list) {
+    if (r.variantOf && ids.has(r.variantOf)) {
+      if (!variantsOf.has(r.variantOf)) variantsOf.set(r.variantOf, []);
+      variantsOf.get(r.variantOf).push(r);
+    }
+  }
+  const top = list.filter(r => !(r.variantOf && ids.has(r.variantOf)));
+  wrap.innerHTML = top.map(r =>
+    libRowHtml(r, caps, false, (variantsOf.get(r.id) || []).length) +
+    (variantsOf.get(r.id) || []).map(v => libRowHtml(v, caps, true, 0)).join("")
+  ).join("");
+}
+
+function libRowHtml(r, caps, isVariant, variantCount) {
+  return `
+    <div class="step lib-row" data-id="${r.id}"${isVariant ? ` style="margin-left:22px"` : ""}>
       <div class="rail"><span class="n">${r.stepCount}</span>steps</div>
       <div class="body">
-        <div class="action"><b>${esc(r.title)}</b></div>
+        <div class="action">${isVariant ? "⑂ " : ""}<b>${esc(r.title)}</b>${
+          isVariant ? ` <span class="param-chip">${esc(r.variantLabel || "variant")}</span>` : ""}</div>
         <div class="page">${esc(libDate(r.createdAt))}${r.lastVerified
           ? ` · verified ${esc(libDate(r.lastVerified.ts))} — ${esc(r.lastVerified.summary)}` : ""}</div>
         <div class="page">${(r.urlHosts || []).map(esc).join(" · ") || esc(r.source || "")}${
           r.httpCount ? ` · ${r.httpCount} HTTP` : ""}</div>
         <div class="lib-actions">
           <button data-act="open">Open</button>
-          ${canRun ? `<button data-act="run" title="Autopilot: perform the recorded steps in the browser">⚡ Run</button>` : ""}
-          ${canWalk ? `<button data-act="walk" title="Guided walkthrough on the live site">▶ Walk</button>` : ""}
-          ${canVerify ? `<button data-act="verify" title="Check anchors against the live site">✓ Verify</button>` : ""}
+          ${caps.run ? `<button data-act="run" title="Autopilot: perform the recorded steps in the browser">⚡ Run</button>` : ""}
+          ${caps.walk ? `<button data-act="walk" title="Guided walkthrough on the live site">▶ Walk</button>` : ""}
+          ${caps.verify ? `<button data-act="verify" title="Check anchors against the live site">✓ Verify</button>` : ""}
           <button data-act="regen" title="Generate from this recording">Re-gen</button>
-          ${canCompare ? `<button data-act="compare" title="Diff against another recording">⇄ Compare</button>` : ""}
+          ${caps.compare ? `<button data-act="compare" title="Diff against another recording">⇄ Compare</button>` : ""}
+          <button data-act="variant" title="${isVariant
+            ? "Untag this variant"
+            : "Tag this recording as a variant of a trunk procedure"}">⑂ ${isVariant ? "Untag" : "Variant"}</button>
+          ${variantCount ? `<button data-act="branch" class="primary" title="One SOP with decision points covering the trunk and its ${variantCount} variant(s)">⑂ SOP</button>` : ""}
           <button data-act="watch" title="${r.watch
             ? "Drift sentinel is watching this SOP — click to stop"
             : "Watch for drift: re-verify anchors every 24 h and alert on new problems"}"${
             r.watch ? ` class="active"` : ""}>⏰${r.watch ? " on" : ""}</button>
-          ${canAudit ? `<button data-act="audit" title="Preview exactly what would be sent to the model">Audit</button>` : ""}
+          ${caps.audit ? `<button data-act="audit" title="Preview exactly what would be sent to the model">Audit</button>` : ""}
           <button data-act="rename">Rename</button>
           <button data-act="del" class="danger" title="Delete recording">✕</button>
         </div>
       </div>
-    </div>`).join("");
+    </div>`;
 }
 
 async function openRecording(id) {
@@ -380,5 +406,105 @@ $("libList").addEventListener("click", async (e) => {
     case "audit":
       if (typeof startAudit === "function") startAudit(id);
       break;
+    case "variant": {
+      const rec = await PTDB.getRecording(id);
+      if (!rec) break;
+      if (rec.variantOf) {
+        delete rec.variantOf;
+        delete rec.variantLabel;
+        rec.updatedAt = Date.now();
+        await PTDB.saveRecording(rec);
+        renderLibrary();
+        break;
+      }
+      if (!libVariantA) {
+        libVariantA = id;
+        $("libStatus").textContent = "Variant ► now pick the TRUNK recording (⑂ on another row; same row cancels)";
+      } else if (libVariantA === id) {
+        libVariantA = null;
+        $("libStatus").textContent = "Library — saved recordings live in this browser profile only.";
+      } else {
+        // second click: this row is the trunk for the recording picked first
+        const variantId = libVariantA;
+        libVariantA = null;
+        $("libStatus").textContent = "Library — saved recordings live in this browser profile only.";
+        if (rec.variantOf) { alert("Pick a trunk that is not itself a variant."); break; }
+        const variant = await PTDB.getRecording(variantId);
+        if (!variant) break;
+        const label = prompt(`Label for this variant path of “${rec.title}”:`, "Alternate path");
+        if (label === null) break;
+        variant.variantOf = id;
+        variant.variantLabel = label.trim() || "Alternate path";
+        variant.updatedAt = Date.now();
+        await PTDB.saveRecording(variant);
+        renderLibrary();
+      }
+      break;
+    }
+    case "branch":
+      renderBranchPane(id);
+      break;
   }
 });
+
+// ── Branched SOP pane (mirrors the diff pane: generate + audit) ────────────
+async function renderBranchPane(trunkId) {
+  const trunk = await PTDB.getRecording(trunkId);
+  if (!trunk) return;
+  const metas = await PTDB.listRecordings();
+  const variants = metas.filter(m => m.variantOf === trunkId);
+  const detail = $("libDetail");
+  detail.hidden = false;
+  detail.innerHTML = `
+    <div class="result-bar">
+      <span>Branched SOP — ${esc(trunk.title)}</span>
+      <div class="result-actions"><button id="branchClose" class="ghost">Close</button></div>
+    </div>
+    <div class="status">One SOP with decision points covering the trunk and:
+      ${variants.map(v => `<b>${esc(v.variantLabel || v.title)}</b>`).join(", ")}.
+      Only step texts and diff ops are sent — no anchors or values.</div>
+    <div class="lib-actions" style="padding:8px">
+      <button id="branchGen" class="primary">Generate branched SOP</button>
+      <button id="branchAudit" class="ghost" title="Preview exactly what would be sent">Audit</button>
+    </div>
+    <div id="branchStatus" class="status" hidden></div>`;
+  $("branchClose").addEventListener("click", () => {
+    detail.hidden = true;
+    detail.innerHTML = "";
+  });
+  $("branchGen").addEventListener("click", async () => {
+    const st = $("branchStatus");
+    st.hidden = false; st.className = "status"; st.textContent = "Generating branched SOP…";
+    const resp = await send({ cmd: "generateBranch", trunkId, context: $("context").value.trim() });
+    if (!resp || !resp.ok) {
+      st.className = "status err";
+      st.textContent = "Failed: " + (resp ? resp.error : "no response");
+      return;
+    }
+    st.hidden = true;
+    currentTarget = "sop"; // markdown document semantics for preview/export
+    currentMarkdown = resp.markdown.trim().replace(/^```[a-z]*\r?\n([\s\S]*?)\r?\n```$/i, "$1");
+    spliceMap = new Map();
+    showResult();
+  });
+  $("branchAudit").addEventListener("click", async () => {
+    const st = $("branchStatus");
+    st.hidden = false; st.className = "status"; st.textContent = "Building audit locally…";
+    const resp = await send({
+      cmd: "auditPayload", target: "branch",
+      context: $("context").value.trim(), recordingId: trunkId
+    });
+    if (!resp || !resp.ok) {
+      st.className = "status err";
+      st.textContent = "Audit failed: " + (resp ? resp.error : "no response");
+      return;
+    }
+    st.hidden = true;
+    lastAudit = resp.audit;
+    currentTarget = "audit";
+    currentMarkdown = auditMarkdown(resp.audit);
+    spliceMap = new Map();
+    showResult();
+  });
+  detail.scrollIntoView({ behavior: "smooth" });
+}
