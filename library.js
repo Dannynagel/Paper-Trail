@@ -58,6 +58,7 @@ async function openRecording(id) {
   const rec = await PTDB.getRecording(id);
   if (!rec) return;
   libRevokeUrls();
+  const runs = await PTDB.listRunsByRec(id);
   const shots = await PTDB.getShotsByRec(id);
   const srcByStep = new Map(shots.map(s => {
     const u = URL.createObjectURL(s.blob);
@@ -92,7 +93,22 @@ async function openRecording(id) {
               ? `<button data-libact="param" data-id="${step.id}" title="Mark as run-time parameter">⚙</button>` : ""}
           </div>
         </div>`).join("")}
-    </section>`;
+    </section>
+    ${runs.length ? `
+      <div class="result-bar"><span>Runs (${runs.length}) — evidence stays local</span></div>
+      <section class="steps lib-steps">
+        ${runs.map(r => `
+          <div class="step">
+            <div class="rail"><span class="n">${r.steps.length}</span>steps</div>
+            <div class="body">
+              <div class="action">${esc(libDate(r.startedAt))} · ${esc(r.mode)}</div>
+              <div class="page">${esc(PTCommon.summarizeRun(r.steps))}</div>
+              <div class="lib-actions"><button data-runid="${r.id}">Open report</button></div>
+            </div>
+          </div>`).join("")}
+      </section>` : ""}`;
+  detail.querySelectorAll("button[data-runid]").forEach(btn =>
+    btn.addEventListener("click", () => openRun(btn.dataset.runid)));
   detail.querySelectorAll("button[data-libact='param']").forEach(btn =>
     btn.addEventListener("click", async () => {
       const fresh = await PTDB.getRecording(rec.id);
@@ -112,6 +128,91 @@ async function openRecording(id) {
     libRevokeUrls();
   });
   detail.scrollIntoView({ behavior: "smooth" });
+}
+
+// ── Evidence run report (all local; export splices screenshots as data URLs) ─
+const RUN_DOT = {
+  done: "ver-found", confirmed: "ver-found", manual: "ver-fallback",
+  skipped: "ver-na", failed: "ver-missing"
+};
+
+async function openRun(runId) {
+  const run = await PTDB.getRun(runId);
+  if (!run) return;
+  libRevokeUrls();
+  const shots = await PTDB.getShotsByRec("run:" + runId);
+  const srcByKey = new Map(shots.map(s => {
+    const u = URL.createObjectURL(s.blob);
+    libObjUrls.push(u);
+    return [s.stepId, u];
+  }));
+
+  const params = Object.entries(run.params || {});
+  const detail = $("libDetail");
+  detail.hidden = false;
+  detail.innerHTML = `
+    <div class="result-bar">
+      <span>Evidence — ${esc(run.recTitle)} · ${esc(libDate(run.startedAt))}</span>
+      <div class="result-actions">
+        <button id="runDlMd" class="ghost">⬇ .md</button>
+        <button id="runDlHtml" class="ghost">⬇ .html</button>
+        <button id="runBack" class="ghost">Back</button>
+      </div>
+    </div>
+    <div class="status">${esc(run.mode)} · ${esc(PTCommon.summarizeRun(run.steps))}${
+      params.length ? " · " + esc(params.map(([k, v]) => `${k}=${v}`).join(", ")) : ""}</div>
+    <section class="steps lib-steps">
+      ${run.steps.map(s => `
+        <div class="step">
+          <div class="rail"><span class="n">${s.n}</span></div>
+          <div class="body">
+            <div class="action">${actionHtml(s.text)}</div>
+            <div class="page"><span class="ver-dot ${RUN_DOT[s.status] || "ver-na"}"></span>${esc(s.status)}
+              · ${esc(new Date(s.ts).toLocaleTimeString())}</div>
+            ${srcByKey.has(run.id + ":" + s.n)
+              ? `<img src="${srcByKey.get(run.id + ":" + s.n)}" alt="Step ${s.n} evidence" loading="lazy">` : ""}
+          </div>
+        </div>`).join("")}
+    </section>`;
+  $("runBack").addEventListener("click", () => openRecording(run.recId));
+  $("runDlMd").addEventListener("click", async () =>
+    download(`Evidence_${runFileStem(run)}.md`, await runReportMarkdown(run), "text/markdown"));
+  $("runDlHtml").addEventListener("click", async () => {
+    const body = mdToHtml(await runReportMarkdown(run));
+    download(`Evidence_${runFileStem(run)}.html`,
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Evidence — ${esc(run.recTitle)}</title>
+<style>body{font:15px/1.6 system-ui,sans-serif;max-width:820px;margin:32px auto;padding:0 24px}
+img{max-width:100%;border:1px solid #ccc;border-radius:6px;margin:8px 0}</style>
+</head><body>${body}</body></html>`, "text/html");
+  });
+  detail.scrollIntoView({ behavior: "smooth" });
+}
+
+function runFileStem(run) {
+  return `${run.recTitle}_${new Date(run.startedAt).toISOString().slice(0, 10)}`
+    .replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, 60) || "run";
+}
+
+async function runReportMarkdown(run) {
+  const shots = await PTDB.getShotsByRec("run:" + run.id);
+  const dataByKey = new Map();
+  for (const s of shots) dataByKey.set(s.stepId, await PTCommon.blobToDataUrl(s.blob));
+  const params = Object.entries(run.params || {});
+  const lines = run.steps.map(s => {
+    const img = dataByKey.get(run.id + ":" + s.n);
+    return `${s.n}. ${String(s.text || "").replace(/\*\*/g, "")} — **${s.status}** (${new Date(s.ts).toLocaleTimeString()})` +
+      (img ? `\n\n![Step ${s.n}](${img})` : "");
+  });
+  return `# Evidence — ${run.recTitle}
+
+- Run: ${new Date(run.startedAt).toLocaleString()}${run.finishedAt ? ` → ${new Date(run.finishedAt).toLocaleString()}` : ""}
+- Mode: ${run.mode}
+- Outcome: ${PTCommon.summarizeRun(run.steps)}
+${params.length ? `- Parameters: ${params.map(([k, v]) => `${k} = ${v}`).join(", ")}\n` : ""}
+## Steps
+
+${lines.join("\n\n")}
+`;
 }
 
 $("libList").addEventListener("click", async (e) => {

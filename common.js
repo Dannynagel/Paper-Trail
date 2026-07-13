@@ -178,6 +178,20 @@ const PTCommon = (() => {
     return { maskedSteps, shotSteps: shots, narratedSteps, captionedSteps, paramSteps, stepCount: steps.length };
   }
 
+  // Reduce an evidence run's per-step statuses into its outcome line.
+  // statuses: "done" | "confirmed" | "manual" | "skipped" | "failed"
+  function summarizeRun(steps) {
+    const c = { done: 0, confirmed: 0, manual: 0, skipped: 0, failed: 0 };
+    for (const s of steps || []) if (s.status in c) c[s.status]++;
+    const parts = [];
+    const executed = c.done + c.confirmed;
+    if (executed) parts.push(`${executed} executed`);
+    if (c.manual) parts.push(`${c.manual} manual`);
+    if (c.skipped) parts.push(`${c.skipped} skipped`);
+    if (c.failed) parts.push(`${c.failed} failed`);
+    return parts.length ? parts.join(", ") : "no steps";
+  }
+
   // Blob → data URL (panel/content contexts; the service worker has its own).
   function blobToDataUrl(blob) {
     return new Promise((res, rej) => {
@@ -190,6 +204,7 @@ const PTCommon = (() => {
 
   return {
     normLabel, labelMatches, anchorList, samePage, sameOrigin, urlHost,
-    summarizeVerify, diffSteps, summarizeDiff, mapNarration, auditStats, blobToDataUrl
+    summarizeVerify, diffSteps, summarizeDiff, mapNarration, auditStats,
+    summarizeRun, blobToDataUrl
   };
 })();

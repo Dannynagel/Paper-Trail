@@ -6,7 +6,7 @@
 
 const PTDB = (() => {
   const DB_NAME = "paper-trail";
-  const DB_VERSION = 1;
+  const DB_VERSION = 2; // v2: + runs store (upgrades are additive-only)
   const LIVE_REC_ID = "live"; // reserved recId for the in-progress session's shots
 
   function open() {
@@ -21,6 +21,12 @@ const PTDB = (() => {
         if (!db.objectStoreNames.contains("shots")) {
           const s = db.createObjectStore("shots", { keyPath: "stepId" });
           s.createIndex("byRec", "recId");
+        }
+        if (!db.objectStoreNames.contains("runs")) {
+          // Evidence runs (autopilot / walkthrough); their screenshots live in
+          // the shots store under recId "run:<runId>".
+          const runs = db.createObjectStore("runs", { keyPath: "id" });
+          runs.createIndex("byRec", "recId");
         }
       };
       req.onsuccess = () => {
@@ -86,9 +92,47 @@ const PTDB = (() => {
   }
 
   function deleteRecording(id) {
-    return withTx(["recordings", "shots"], "readwrite", async (tx) => {
+    return withTx(["recordings", "shots", "runs"], "readwrite", async (tx) => {
       await prom(tx.objectStore("recordings").delete(id));
       await eachByRec(tx, id, (cursor) => cursor.delete());
+      // Evidence runs and their screenshots go with the recording.
+      const runIds = [];
+      await eachCursor(tx.objectStore("runs").index("byRec").openCursor(id), (cursor) => {
+        runIds.push(cursor.value.id);
+        cursor.delete();
+      });
+      for (const runId of runIds) {
+        await eachByRec(tx, "run:" + runId, (cursor) => cursor.delete());
+      }
+    });
+  }
+
+  // ── Evidence runs ─────────────────────────────────────────────────────────
+
+  function saveRun(run) {
+    return withTx("runs", "readwrite", (tx) => prom(tx.objectStore("runs").put(run)));
+  }
+
+  function getRun(id) {
+    return withTx("runs", "readonly", (tx) => prom(tx.objectStore("runs").get(id)));
+  }
+
+  async function listRunsByRec(recId) {
+    const all = await withTx("runs", "readonly", (tx) =>
+      prom(tx.objectStore("runs").index("byRec").getAll(recId)));
+    return all.sort((a, b) => b.startedAt - a.startedAt);
+  }
+
+  function deleteRunsByRec(recId) {
+    return withTx(["runs", "shots"], "readwrite", async (tx) => {
+      const runIds = [];
+      await eachCursor(tx.objectStore("runs").index("byRec").openCursor(recId), (cursor) => {
+        runIds.push(cursor.value.id);
+        cursor.delete();
+      });
+      for (const runId of runIds) {
+        await eachByRec(tx, "run:" + runId, (cursor) => cursor.delete());
+      }
     });
   }
 
@@ -125,9 +169,8 @@ const PTDB = (() => {
     }));
   }
 
-  function eachByRec(tx, recId, visit) {
+  function eachCursor(req, visit) {
     return new Promise((res, rej) => {
-      const req = tx.objectStore("shots").index("byRec").openCursor(recId);
       req.onsuccess = () => {
         const cursor = req.result;
         if (!cursor) return res();
@@ -136,6 +179,10 @@ const PTDB = (() => {
       };
       req.onerror = () => rej(req.error);
     });
+  }
+
+  function eachByRec(tx, recId, visit) {
+    return eachCursor(tx.objectStore("shots").index("byRec").openCursor(recId), visit);
   }
 
   async function estimateSize(recId) {
@@ -148,6 +195,7 @@ const PTDB = (() => {
     LIVE_REC_ID,
     saveRecording, listRecordings, getRecording, renameRecording, deleteRecording,
     putShot, getShot, getShotsByRec, deleteShot, deleteShotsByRec,
-    reassignShots, estimateSize
+    reassignShots, estimateSize,
+    saveRun, getRun, listRunsByRec, deleteRunsByRec
   };
 })();

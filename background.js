@@ -550,6 +550,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await addDesktopStep(msg);
         sendResponse({ ok: true });
         break;
+      case "evidenceShot": {
+        // One evidence screenshot for a run step. Stored locally under the
+        // run's synthetic recId; reuses the rate-gated capture pipeline.
+        const blob = await captureShot(null);
+        if (blob && msg.runId) {
+          const key = msg.runId + ":" + msg.n;
+          try {
+            await PTDB.putShot({ stepId: key, recId: "run:" + msg.runId, blob });
+            sendResponse({ ok: true, key });
+            break;
+          } catch (e) { /* fall through */ }
+        }
+        sendResponse({ ok: false });
+        break;
+      }
       case "nativeConnect":
         sendResponse({ ok: connectNative() });
         break;

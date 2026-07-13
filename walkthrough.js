@@ -38,7 +38,18 @@ async function startWalkthrough(recId) {
     tabId: null,
     states: rec.steps.map(() => "pending"), // pending | done | skipped
     shotUrls,
-    pingTimer: setInterval(walkPingFrames, 8000)
+    pingTimer: setInterval(walkPingFrames, 8000),
+    evidence: false, // 🧾 toggle: when on, completed steps are screenshotted into a local run record
+    run: {
+      id: crypto.randomUUID(),
+      recId: rec.id,
+      recTitle: rec.title,
+      startedAt: Date.now(),
+      finishedAt: 0,
+      mode: "walkthrough",
+      params: {},
+      steps: []
+    }
   };
   chrome.tabs.onUpdated.addListener(walkOnTabUpdated);
   chrome.tabs.onRemoved.addListener(walkOnTabRemoved);
@@ -51,6 +62,10 @@ async function endWalkthrough(message) {
   chrome.tabs.onUpdated.removeListener(walkOnTabUpdated);
   chrome.tabs.onRemoved.removeListener(walkOnTabRemoved);
   if (walk.tabId) await walkSendFrames({ cmd: "walkDisarm" });
+  if (walk.run && walk.run.steps.length) {
+    walk.run.finishedAt = Date.now();
+    await PTDB.saveRun(walk.run).catch(() => {});
+  }
   for (const u of walk.shotUrls.values()) URL.revokeObjectURL(u);
   walk = null;
   const detail = $("libDetail");
@@ -131,11 +146,25 @@ async function walkArmCurrent() {
   renderWalkPanel("stale");
 }
 
-function walkMarkDone(via) {
+async function walkMarkDone(via) {
   if (!walk) return;
   walk.states[walk.idx] = "done";
+  await walkRecordStep(walk.steps[walk.idx], via === "manual" ? "manual" : "done");
+  if (!walk) return;
   walk.idx++;
   walkShowStep();
+}
+
+// Evidence (🧾 toggle): screenshot the walkthrough tab after each completed
+// step into a local run record. Off by default; nothing leaves the machine.
+async function walkRecordStep(step, status) {
+  if (!walk || !walk.evidence || !step) return;
+  const entry = { n: step.n, text: step.text, status, ts: Date.now() };
+  if (status !== "skipped") {
+    const r = await send({ cmd: "evidenceShot", runId: walk.run.id, n: step.n });
+    entry.hasShot = !!(r && r.ok);
+  }
+  if (walk) walk.run.steps.push(entry);
 }
 
 // ── Tab / frame plumbing ────────────────────────────────────────────────────
@@ -235,7 +264,12 @@ function renderWalkPanel(state, via) {
   detail.innerHTML = `
     <div class="result-bar">
       <span>Walkthrough — ${esc(walk.rec.title)}</span>
-      <div class="result-actions"><button id="walkEnd" class="ghost">✕ End</button></div>
+      <div class="result-actions">
+        <label title="Screenshot each completed step into a local evidence run" style="font-size:10px;display:flex;align-items:center;gap:3px">
+          <input type="checkbox" id="walkEvidence" ${walk.evidence ? "checked" : ""}> 🧾 evidence
+        </label>
+        <button id="walkEnd" class="ghost">✕ End</button>
+      </div>
     </div>
     <div class="status">${walk.idx + 1} / ${walk.steps.length}
       · ${walk.states.filter(s => s === "done").length} done</div>
@@ -257,6 +291,9 @@ function renderWalkPanel(state, via) {
     </div>`;
 
   $("walkEnd").addEventListener("click", () => endWalkthrough());
+  $("walkEvidence").addEventListener("change", (e) => {
+    if (walk) walk.evidence = e.target.checked;
+  });
   $("walkBack").addEventListener("click", async () => {
     if (!walk || walk.idx === 0) return;
     await walkSendFrames({ cmd: "walkDisarm" });
@@ -268,6 +305,8 @@ function renderWalkPanel(state, via) {
     if (!walk) return;
     await walkSendFrames({ cmd: "walkDisarm" });
     walk.states[walk.idx] = "skipped";
+    await walkRecordStep(walk.steps[walk.idx], "skipped");
+    if (!walk) return;
     walk.idx++;
     walkShowStep();
   });

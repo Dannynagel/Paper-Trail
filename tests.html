@@ -167,6 +167,18 @@ eq("auditStats captioned desktop steps only", PTCommon.auditStats(steps).caption
 eq("auditStats run-time parameters", PTCommon.auditStats(steps).paramSteps, [{ n: 6, param: "EMPLOYEE_ID" }]);
 eq("auditStats step count", PTCommon.auditStats(steps).stepCount, 6);
 
+// ── summarizeRun (evidence run outcome line) ─────────────────────────────
+const runSteps = (...statuses) => statuses.map((status, i) => ({ n: i + 1, status }));
+eq("summarizeRun counts executed = done + confirmed",
+  PTCommon.summarizeRun(runSteps("done", "confirmed", "done")), "3 executed");
+eq("summarizeRun full mix",
+  PTCommon.summarizeRun(runSteps("done", "manual", "skipped", "failed")),
+  "1 executed, 1 manual, 1 skipped, 1 failed");
+eq("summarizeRun empty", PTCommon.summarizeRun([]), "no steps");
+eq("summarizeRun null", PTCommon.summarizeRun(null), "no steps");
+eq("summarizeRun ignores unknown statuses",
+  PTCommon.summarizeRun(runSteps("done", "pending")), "1 executed");
+
 const h = document.createElement("h1");
 h.className = failed ? "fail" : "pass";
 h.textContent = `${passed} passed, ${failed} failed`;

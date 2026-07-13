@@ -20,7 +20,9 @@ function apExecable(s) {
 }
 
 function apParamNames(rec) {
-  return [...new Set(rec.steps.map(s => s.param).filter(Boolean))];
+  // Params on masked steps are excluded: the human types those values under
+  // the gate, so the panel never collects (or stores) them.
+  return [...new Set(rec.steps.filter(s => !s.masked).map(s => s.param).filter(Boolean))];
 }
 
 async function startAutopilot(recId, presetValues, opts) {
@@ -98,6 +100,8 @@ function renderApSetup(rec) {
 }
 
 function apBegin(rec, values, stepConfirm) {
+  const params = {};
+  for (const p of apParamNames(rec)) params[p] = (values || {})[p] || "";
   ap = {
     rec,
     steps: rec.steps,
@@ -111,7 +115,19 @@ function apBegin(rec, values, stepConfirm) {
     failReason: "",
     waiting: null,
     rearm: null,
-    pingTimer: setInterval(apPing, 8000)
+    pingTimer: setInterval(apPing, 8000),
+    // Evidence run — entirely local. params holds NON-SENSITIVE values only
+    // (masked-step params never reach the panel; see apParamNames).
+    run: {
+      id: crypto.randomUUID(),
+      recId: rec.id,
+      recTitle: rec.title,
+      startedAt: Date.now(),
+      finishedAt: 0,
+      mode: "autopilot",
+      params,
+      steps: []
+    }
   };
   chrome.tabs.onUpdated.addListener(apOnTabUpdated);
   chrome.tabs.onRemoved.addListener(apOnTabRemoved);
@@ -135,12 +151,15 @@ async function apLoop() {
       const choice = await apWait();
       if (!ap) return;
       if (choice === "aborted" || ap.stopped) {
+        await apRecordStep(step, "failed");
         await apEnd(ap.endMessage || "Autopilot stopped after a missed step.");
         return;
       }
       status = choice === "manual" ? "manual" : "skipped";
     }
     ap.states[ap.idx] = status;
+    await apRecordStep(step, status);
+    if (!ap) return;
     ap.idx++;
     await apSleep(AP_SETTLE_MS);
   }
@@ -214,6 +233,18 @@ function apStepPayload(step) {
   };
 }
 
+// Evidence: one entry per attempted step; completed steps also get a
+// screenshot of the run tab (stored locally under the run's recId).
+async function apRecordStep(step, status) {
+  if (!ap || !ap.run) return;
+  const entry = { n: step.n, text: step.text, status, ts: Date.now() };
+  if (status === "done" || status === "confirmed" || status === "manual") {
+    const r = await send({ cmd: "evidenceShot", runId: ap.run.id, n: step.n });
+    entry.hasShot = !!(r && r.ok);
+  }
+  if (ap && ap.run) ap.run.steps.push(entry);
+}
+
 async function apFinish() {
   const count = (s) => ap.states.filter(x => x === s).length;
   const parts = [`${count("done") + count("confirmed")} executed`];
@@ -228,6 +259,10 @@ async function apEnd(message) {
   chrome.tabs.onUpdated.removeListener(apOnTabUpdated);
   chrome.tabs.onRemoved.removeListener(apOnTabRemoved);
   if (ap.tabId) await apSendFrames({ cmd: "walkDisarm" });
+  if (ap.run && ap.run.steps.length) {
+    ap.run.finishedAt = Date.now();
+    await PTDB.saveRun(ap.run).catch(() => {});
+  }
   ap = null;
   const detail = $("libDetail");
   if (message) {
