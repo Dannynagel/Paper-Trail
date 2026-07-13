@@ -46,6 +46,7 @@ Each step shows its ordinal, elapsed time, action, page/app, and screenshot thum
 
 - **✕** delete a noise step (ordinals renumber)
 - **🖼✕** remove just the screenshot (keeps the semantic step)
+- **🖌** redact the screenshot: drag black rectangles over anything sensitive, **Apply** flattens them permanently — every export, pack, and report from then on carries the redacted image (also available on saved recordings in the Library)
 - **⚙** (input/select steps) mark the value as a **run-time parameter** — for inputs that change every run, like the affected user in a JML process. Name it (`EMPLOYEE_ID`) and it becomes an `<EMPLOYEE_ID>` placeholder with an Inputs list in generated SOPs, and a mandatory named parameter in every generated script. Also editable later on saved recordings in the Library.
 - Click a thumbnail to view it full-size
 
@@ -91,12 +92,16 @@ Each library entry offers:
 
 | Action | What it does |
 |---|---|
-| **Open** | Read-only view of the saved steps, screenshots, and narration |
+| **Open** | Read-only view of the saved steps, screenshots, narration — plus the runs table and evidence runs (§9) |
+| **⚡ Run** | Autopilot: the extension performs the steps itself — see §9 |
 | **▶ Walk** | Guided walkthrough — see below |
 | **✓ Verify** | Anchor health check — see below |
 | **Re-gen** | Sets the recording as the generation source (the Generate section shows `SOURCE ►`); pick a target and generate as usual |
 | **⇄ Compare** | Diff against another recording: click ⇄ on the first, then on the second — see below |
+| **⑂ Variant / ⑂ SOP** | Tag as a variant of a trunk procedure / generate one branch-aware SOP — see §10 |
+| **⏰** | Drift sentinel: re-verify anchors daily and alert on new problems — see §11 |
 | **Audit** | Privacy audit of exactly what generation would send — see §6 |
+| **⬇ / ⬆ Import .ptpack** | Share the recording (steps + screenshots) with another profile — see §12 |
 | **Rename / ✕** | Housekeeping |
 
 **✓ Verify — catch stale SOPs before your users do.** Verify opens a tab, walks the recording's pages, and probes every anchor read-only (nothing is clicked or typed). Each step gets a traffic light: healthy · drifted (the label found the element but the selector changed — with a suggested repair you can apply in one click) · missing · unreachable. The result is stamped on the library entry, so you can see at a glance which SOPs still match the live UI.
@@ -107,7 +112,7 @@ Steps recorded since v1.2 carry **multiple independent anchors** (test attribute
 
 **⇄ Compare — what changed between two recordings.** Record the procedure again after a UI update, save it, then Compare the two versions: the report classifies every step as unchanged / relabeled / added / removed (a moved step reads as removed + added) and flags page, value, and anchor changes. Export it as `.md`/`.html`, or press **Generate change summary** for an LLM-written change-management document — that payload contains step text only, never anchors or values, and has its own Audit button.
 
-Verify and Walk cover browser steps; recording, verifying, and walking are mutually exclusive.
+Verify, Walk, and Run cover browser steps; recording, verifying, walking, and autopilot are mutually exclusive.
 
 ## 6. Privacy audit — prove what leaves the machine
 
@@ -115,7 +120,34 @@ Verify and Walk cover browser steps; recording, verifying, and walking are mutua
 
 ---
 
-## 7. Shortcuts
+## 9. Autopilot — the recording runs itself (v1.5)
+
+**⚡ Run** on a library entry executes the recorded steps in a live tab, attended. Two safety rules are absolute:
+
+- **Anchors only.** A step executes only when one of its *recorded* anchors resolves the element. If none do, the run **stops** — Autopilot never acts on a label guess, so it cannot click the wrong thing. On a miss you choose: do the step yourself and mark it done, skip it, or abort.
+- **Masked values are human-only.** Password/secret steps (and any step whose value was never captured) pause with the guide overlay on the field: *you* type the value, the same action detection as the walkthrough notices, and the run advances. The extension neither stores nor injects those values.
+
+Before starting you fill in any **run-time parameters** (values stay in the panel, never persisted) and pick a mode: **per-step confirm** — each step is highlighted first and ▶ runs it (or perform it yourself) — or **free-run** with a short settle between steps. Text is entered through native setters so React/Vue/Angular apps see real `input`/`change` events; apps that insist on `event.isTrusted` will fail those steps *visibly*, dropping you to manual — never a silent fake success.
+
+**Evidence.** Every run writes a local **run record**: per-step status (`done` / `confirmed` / `manual` / `skipped` / `failed`), timestamps, and a screenshot after each completed step. Walkthroughs record the same evidence when the 🧾 toggle is on. Open a recording to see its **Runs** list; each run renders a status-colored report exportable as `.md`/`.html` with the screenshots spliced in. Evidence never leaves this machine.
+
+**Runs table (CSV).** If the recording has parameters, its detail view shows a runs table: download the CSV template (columns = your parameter names), fill one row per case, paste it back — headers are validated locally. **⚡ Run all rows** chains one autopilot run + one evidence record per row, stopping on failure. When a runs table exists, generated scripts also gain a batch wrapper (`-CsvPath` in PowerShell, `--csv` in Playwright) built from the parameter **names** — the row values themselves are never sent to any model.
+
+## 10. Branch-aware SOPs (v1.5)
+
+Real procedures fork ("if the joiner is a contractor…"). Record the main path (the **trunk**), then record each alternate path and tag it: **⑂ Variant** on the alternate, then ⑂ on the trunk, then name the path ("Contractor path"). Variants group under their trunk in the Library. **⑂ SOP** on the trunk generates **one** document covering everything: numbered decision points ("If X: continue at step N" — inferred conditions are marked as inferences), labeled branch sub-sequences with explicit rejoin points, and a closing mermaid flowchart. The payload is the trunk's action log plus per-variant `{op, step text}` diff entries computed locally — no variant anchors or values — and it has its own Audit button.
+
+## 11. Drift sentinel — know before your users do (v1.5)
+
+**⏰** on a library entry re-verifies its anchors every 24 hours (hourly alarm picks up due recordings; nothing runs while you're recording). The check opens an **inactive** tab, probes read-only exactly like ✓ Verify, stamps `lastVerified`, and closes the tab. When a sweep finds **new** problems versus the previous one, you get a desktop notification and a `!` badge on the icon (cleared when you open the Library). A site that stays drifted — or a login wall that keeps grading `unreachable` — alerts once, not hourly. Report-only: the sentinel never clicks, types, or repairs.
+
+## 12. Library packs — share a recording (v1.5)
+
+**⬇** on a row exports a `.ptpack` file: the recording plus its screenshots (as data URLs). **⬆ Import .ptpack** in the Library header restores it in another profile under a fresh id. Local operational state — evidence runs, watch settings, runs-table values, variant links — deliberately never travels. Redact screenshots (🖌) *before* exporting: packs carry whatever the shots store holds.
+
+---
+
+## 13. Shortcuts
 
 | Keys | Action | Scope |
 |---|---|---|
@@ -127,7 +159,7 @@ Remap at `chrome://extensions/shortcuts`.
 
 ---
 
-## 8. Troubleshooting
+## 14. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
@@ -139,5 +171,8 @@ Remap at `chrome://extensions/shortcuts`.
 | Clicks in Citrix/VDI/canvas apps capture nothing useful | There's no DOM to read — use window-capture mode or `Ctrl+Shift+9` |
 | UIA companion won't connect | Extension ID changed; rerun the installer ([INSTALL.md §3](INSTALL.md#verifying--troubleshooting)) |
 | Desktop clicks show window title but no element name | The target app runs elevated and denies UIA reads — run it non-elevated, or accept the fallback |
+| Autopilot stops with "no recorded anchor resolves" | The UI changed since recording — run **✓ Verify**, apply the suggested repairs, then re-run; or do the step manually and continue |
+| Autopilot pauses on a password/secret field | By design — masked values are typed by a human under the overlay, never injected |
+| Sentinel notifies about a site you're logged out of | It grades `unreachable` and alerts once; sign in in any tab and it recovers on the next sweep |
 | Generation fails instantly | No API key / custom URL configured — open **⚙** options |
 | Generated script uses a selector that no longer matches | The UI changed since recording — re-record the affected step; never hand-patch guessed selectors |

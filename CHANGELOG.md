@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.0
+
+- **Autopilot**: ⚡ Run performs a saved recording's steps in the browser itself — anchors-only execution (a miss stops the run; a label guess never clicks), values set via native setters so framework listeners fire, per-step confirm or free-run, run-time parameter form (values panel-local). Masked steps and steps without a captured value always gate on a human under the guide overlay.
+- **Evidence packs**: every Autopilot run (and walkthroughs with the 🧾 toggle) records a local run — per-step status (done/confirmed/manual/skipped/failed), timestamps, and a screenshot per completed step. Runs list on each library entry with a status-colored report and `.md`/`.html` export. Entirely local; masked-step values never stored.
+- **Batch parameter sets**: paste a CSV runs table (columns = the recording's parameter names, validated locally, template download) and **⚡ Run all rows** — one run + evidence record per row, stop-on-failure. Script targets gain a `-CsvPath`/`--csv` batch-wrapper rule built from parameter *names* only; row values never leave the machine.
+- **Drift sentinel**: ⏰ watches re-verify a recording's anchors every 24 h via an hourly alarm in an inactive tab (report-only). New problems raise a notification and a "!" badge that clears when the Library opens; unchanged drift and persistent login walls don't re-alert. New `alarms` + `notifications` permissions.
+- **Branch-aware SOPs**: tag recordings as ⑂ variants of a trunk (grouped in the Library) and generate ONE SOP with numbered decision points, labeled branch sub-sequences, rejoin points, and a closing mermaid flowchart — variants travel as {op, step text} diff entries only, covered by the audit.
+- **Library packs**: ⬇ exports a recording + screenshots as a shareable `.ptpack`; ⬆ imports it under a fresh id (step UUIDs kept). Runs, watch state, and runs-table values never travel.
+- **Redaction brush**: 🖌 on any ledger or library screenshot opens a canvas editor — drag black rectangles, undo, Apply permanently replaces the stored screenshot everywhere (exports, packs, evidence).
+
 ## 1.4.0
 
 - **Run-time parameters**: ⚙ marks input/select values as named per-run inputs (JML-style); SOPs get `<NAME>` placeholders and an Inputs list, scripts get mandatory named parameters, the audit lists them. Editable on live sessions and saved recordings.

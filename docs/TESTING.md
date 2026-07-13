@@ -109,7 +109,42 @@ stub endpoints and fake media devices):
    wrong transcription URL → error with a working Retry button; confirm no
    audio appears anywhere in IndexedDB (Application tab) or storage.
 
-## 6. Regressions to spot-check after any content.js change
+## 6. v1.5 — Autopilot, evidence, CSV batches, sentinel, branches, packs, redaction
+
+Pure logic (`tests.html`): `parseCsv` (quoted/escaped/CRLF/multi-line/ragged),
+`summarizeRun` outcome lines.
+
+The automated smoke harness covers the full happy paths (autopilot free-run and
+per-step confirm, masked-value human gate, anchors-only stop, evidence records
+and export, CSV validation and Run-all-rows, `sentinelRunNow`, variant tagging
+and `generateBranch` payload, `.ptpack` round-trip, `redactBlob` + brush apply).
+Manual integration paths worth walking against real sites:
+
+1. **Autopilot on a real SPA** (React/Vue app): free-run a saved recording;
+   values set by the native-setter path must actually update the app's state
+   (watch the UI react). A site that gates on `event.isTrusted` must FAIL the
+   step visibly (stop → manual), never fake-succeed.
+2. **Masked gate**: a recording with a password step pauses with the overlay
+   on the field; type it → the run advances; verify the value appears nowhere
+   in the run record (check IndexedDB `runs` store).
+3. **Evidence**: after a run, open the recording → Runs → report shows
+   statuses + screenshots; export `.html` and eyeball the spliced images.
+   Delete the recording → its runs and run-shots disappear (Application tab).
+4. **Sentinel end-to-end**: ⏰ a recording, break one control in DevTools,
+   `sentinelRunNow` via a second sweep or wait for the alarm → notification +
+   "!" badge once; unchanged breakage must not re-notify hourly; opening the
+   Library clears the badge.
+5. **Branched SOP against a real provider**: tag 1-2 variants, generate — the
+   document must contain decision points referencing real step numbers, and
+   the mermaid block must render (paste into mermaid.live).
+6. **Pack round-trip across profiles**: export a `.ptpack` in one Chrome
+   profile, import in another; screenshots and step ids survive; watch/runs do
+   not travel.
+7. **Redaction**: 🖌 a screenshot, apply, then export the SOP `.html` and a
+   `.ptpack` — both must carry the blacked-out image; the original bytes must
+   be gone (re-open the shot in the ledger).
+
+## 7. Regressions to spot-check after any content.js change
 
 - Recording still captures clicks/inputs/selects/Enter/submit with correct labels.
 - The capture ripple still appears; masked fields stay masked.

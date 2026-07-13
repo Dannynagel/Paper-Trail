@@ -27,6 +27,8 @@ Paper Trail loads as an unpacked extension (Chrome or Edge, v116+):
 | `nativeMessaging` | Talking to the UIA companion |
 | `webNavigation` | Enumerating frames for Verify/Walkthrough probing |
 | `webRequest` | Observing the page's own requests **while recording only** — the HTTP log behind the pure-HTTP PowerShell target (values masked; the extension's own calls excluded) |
+| `alarms` | The drift sentinel's hourly check for watched recordings that are due a re-verify |
+| `notifications` | One desktop alert when a watched recording develops **new** anchor drift |
 
 Nothing is sent anywhere except your configured model endpoint, and only when you click **Generate** (see [DESIGN.md §6](DESIGN.md#6-privacy--security-model)).
 

@@ -1,6 +1,6 @@
 # Paper Trail — Design Document
 
-**Version 1.3.0 · Chrome Extension (Manifest V3) + Windows UIA companion (recommended for desktop capture)**
+**Version 1.5.0 · Chrome Extension (Manifest V3) + Windows UIA companion (recommended for desktop capture)**
 
 Paper Trail converts a live browser or desktop session into (a) an illustrated Standard Operating Procedure and (b) optionally, an RPA artifact — by capturing *semantic* actions rather than video.
 
@@ -146,6 +146,9 @@ Providers: Anthropic (/v1/messages with direct-browser-access header), OpenAI (/
 | Typed values | Masked | Operator opt-in; secret-like fields stay masked regardless |
 | RPA generation | Always text-only | None - anchors are the payload, never pixels |
 | HTTP log (recording only) | Form/JSON values masked; secret-like query params scrubbed; sent only with the psweb target | Operator enables "Record typed values" (secret-like keys stay masked) |
+| Evidence runs (statuses + screenshots) | Local only — never sent, never exported in packs | - |
+| CSV runs-table values | Local only; generated batch scripts read the file at run time | - (only parameter *names* appear in prompts) |
+| Autopilot parameter values / masked entries | Parameters live in the panel for the run; masked values are typed by the human and never touch the extension | - |
 
 Additional properties: no external CDN or third-party scripts; capture is inert unless recording is on; the UIA companion is per-user (HKCU), launched only by Chrome/Edge native messaging with the extension's ID pinned in allowed_origins, and exits when the extension disconnects.
 
@@ -173,6 +176,10 @@ Four features added after 1.0, all built on the same premise: every recorded ste
 
 **Voice narration.** A 🎤 toggle records mic audio in the panel (MediaRecorder, webm/opus) and transcribes it through a user-configured OpenAI-compatible `/v1/audio/transcriptions` endpoint (`verbose_json` required). Segments attach to steps by timestamp (`PTCommon.mapNarration`: latest step whose ts ≤ segment end). **Raw audio is never persisted** — it lives in the panel until transcribed and dies with it; only transcript text becomes data (`step.narration`), flows into generation as spoken operator intent, and is called out explicitly in the audit. A `mic.html` helper tab handles the side panel's inability to show the permission prompt.
 
+### v1.3 addition: caption-on-capture
+
+Desktop generation was prefill-bound: N window-capture frames made an N-image request. The opt-in `captionOnCapture` setting moves that vision work off the critical path — `captionStep()` in `background.js` describes each frame with the configured model right after capture (one short vision request per frame, best-effort) and stores the sentence as `step.caption`. Captioned frames are excluded from generation attachments (`buildSopRequest`'s attach rule), the caption rides in the action log with an SOP-prompt rule marking its provenance, and the audit lists captioned steps explicitly. Failure degrades to exactly the pre-existing behavior: the frame attaches at generation. Net effect: desktop-heavy recordings generate as fast as web-only ones, and the generation request is text-only.
+
 ### v1.4 additions: parameters, HTTP capture, Delinea mode
 
 **Run-time parameters.** Input/select steps can be marked (⚙) with a parameter name (`step.param`). SOPs render `<NAME>` placeholders plus an Inputs list (prompt rule 10); automation logs carry `param_name`, which every script prompt turns into a mandatory named parameter with recorded values demoted to sample comments. Built for JML-style procedures whose subjects change per run.
@@ -181,9 +188,21 @@ Four features added after 1.0, all built on the same premise: every recorded ste
 
 **Delinea Secret Server mode.** A 🔐 checkbox on script targets appends per-language rules to the system prompt: module-free SS REST helpers (`-AuthMethod windows|token`), one `-<Name>SecretId` parameter per credential, credentials resolved only at runtime, and the service-account rotation pattern — generate locally, change target, verify, write back to SS, loud out-of-sync failure. The audit renders the exact modified prompt.
 
-### v1.3 addition: caption-on-capture
+### v1.5 additions: execution, evidence, batches, sentinel, branches, packs, redaction
 
-Desktop generation was prefill-bound: N window-capture frames made an N-image request. The opt-in `captionOnCapture` setting moves that vision work off the critical path — `captionStep()` in `background.js` describes each frame with the configured model right after capture (one short vision request per frame, best-effort) and stores the sentence as `step.caption`. Captioned frames are excluded from generation attachments (`buildSopRequest`'s attach rule), the caption rides in the action log with an SOP-prompt rule marking its provenance, and the audit lists captioned steps explicitly. Failure degrades to exactly the pre-existing behavior: the frame attaches at generation. Net effect: desktop-heavy recordings generate as fast as web-only ones, and the generation request is text-only.
+**Autopilot (`autopilot.js` + `execStep` in `content.js`).** The recorder inverted twice: the same anchors that document and verify a procedure now *perform* it. The content script's executor resolves each step with `resolveStep(step, anchorsOnly=true)` — the label scan is disabled for execution, so a step either resolves through a recorded anchor or the run stops; a guess may suggest a repair but never acts. Values enter through the native property setters (`HTMLInputElement`/`HTMLTextAreaElement` prototype descriptors) followed by bubbled `input`/`change` events so framework value-trackers observe the change; checkboxes re-use a real `.click()`. Masked steps — and steps with no captured value — are never executed: the executor arms the walkthrough overlay and the human's own action (detected by `checkWalkMatch`, reported via `walkStepDone`) advances the run. Per-step confirm stages the overlay first (`{staged}`), and a second `execStep{confirm:false}` performs it. Orchestration (sequential loop, ~500 ms settle, navigation with `samePage` tolerance, per-frame sends, ping/deadman) lives in the panel; parameter values are collected in a panel-local form and never persisted. Mode machine gains `"autopilot"`, torn down by the recording broadcast like the walkthrough.
+
+**Evidence runs (`db.js` v2).** An additive `runs` store (index `byRec`) records each Autopilot run — and each walkthrough with the 🧾 toggle — as `{id, recId, mode, params, steps:[{n, text, status, ts, hasShot}]}` with statuses `done/confirmed/manual/skipped/failed`. After every completed step the panel asks the worker for one `evidenceShot`: the existing rate-gated capture pipeline stores the JPEG under `recId "run:<runId>"` in the shots store, keyed `runId:n`. Run params hold non-sensitive values only (masked-step parameters are never collected). `deleteRecording` cascades to runs and their shots. Reports render from `.step` cards with `ver-dot` status colors and export `.md`/`.html` with screenshots as data URLs — evidence is entirely local.
+
+**Batch parameter sets (`PTCommon.parseCsv`).** A pure RFC-4180-ish parser (quoted fields, `""` escapes, CRLF, multi-line fields) feeds the library's runs table; headers must equal the recording's parameter names (validated locally) and rows become `rec.paramSets`. "Run all rows" chains free-runs in one reused tab, one evidence record per row, stop-on-failure. Generation sees only a COUNT (`resolveSource` exposes `paramSets` as a number) plus the parameter names, which fuel a `-CsvPath`/`--csv` batch-wrapper prompt rule for the script targets — CSV values never reach a payload, and the audit shows the identical modified prompt by construction.
+
+**Drift sentinel (worker-side).** ⏰ sets `rec.watch = {periodHours: 24, lastRun, lastNotified}`; any watch arms an hourly `pt-sentinel` alarm. Due recordings are re-verified sequentially in an **inactive** tab with the same origin+path tolerance, 20 s navigation timeout, and per-frame `probeStep` grading as Verify Mode, then stamped `lastVerified` ("… — sentinel"). Alerting compares problem counts against the previous sweep (`watch.lastCounts`): only NEW drift/missing/unreachable raises `chrome.notifications` + a `!` action badge (cleared on Library open, never clobbering REC) — persistent breakage and login walls alert once. Report-only by design; runs are short and message-driven so MV3 eviction just defers to the next alarm. `sentinelRunNow` gives tests a deterministic trigger.
+
+**Branch-aware SOPs.** Recordings tagged `variantOf`/`variantLabel` group under their trunk. `generateBranch` diffs each variant against the trunk locally (`PTCommon.diffSteps`) and sends the trunk action log plus per-variant `{op, step text}` entries — never variant anchors, values, or URLs. `BRANCH_PROMPT` demands one procedure with numbered decision points (inferred conditions marked as inferences), labeled branch sub-sequences with rejoin points, and a closing mermaid flowchart. `buildAudit("branch")` mirrors it payload-identically.
+
+**Library packs.** `.ptpack` = `{format: "ptpack/1", rec, shots: [{stepId, b64}]}`. Export strips watch state, runs-table values, and variant links; runs never travel. Import validates the format, regenerates the recording id (step UUIDs are kept so shots re-attach), and decodes screenshots back to Blobs.
+
+**Redaction brush (`redact.js`).** Pure core `redactBlob(blob, rects)` flattens opaque black rectangles onto the image via OffscreenCanvas; the modal editor (drag, multi-rect, undo, confirm-before-apply) replaces the blob in the shots store **at the same stepId**, so the ledger, library, exports, packs, and evidence reports all pick up the redacted bytes, and the panel's object-URL cache is invalidated. Irreversible on purpose — redaction that can be undone isn't redaction.
 
 ---
 
@@ -192,6 +211,7 @@ Desktop generation was prefill-bound: N window-capture frames made an N-image re
 - Canvas-rendered apps (Citrix/VDI, Flutter web) expose little DOM - window-capture mode or manual captures cover them.
 - Elevated (admin) windows may deny UIA reads; those clicks degrade to window title + screenshot.
 - Keystroke capture is deliberately excluded from the UIA companion in v1.
-- Verify and Walkthrough cover web anchors only; desktop (UIA / window-capture) steps grade "not verifiable" and walk through as instruction cards.
+- Verify, Walkthrough, Autopilot, and the sentinel cover web anchors only; desktop (UIA / window-capture) steps grade "not verifiable", walk through as instruction cards, and pause Autopilot for a human.
 - Sandboxed iframes that block extension injection grade "missing" in Verify even when the control exists.
-- Roadmap: region redaction brush; DOCX export; team templates.
+- Autopilot dispatches synthetic events: apps that gate on `event.isTrusted` reject them — those steps fail visibly and fall to per-step confirm/manual, never a silent fake success.
+- Roadmap: DOCX export; team templates.

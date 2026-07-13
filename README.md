@@ -24,10 +24,16 @@ Clicks & fields (DOM / UIA)  ──►  Semantic step ledger  ──►  LLM  �
 | **Recorder** | Web (any site, all frames), desktop via UIA companion (recommended, Windows) or window-capture mode (no install, any OS) |
 | **Voice narration** | 🎤 speak while recording; transcribed via any OpenAI-compatible Whisper endpoint, attached to steps by timestamp; audio never stored |
 | **Caption-on-capture** | Optional: desktop frames described by your vision model the moment they're captured — generation stays text-only and fast |
-| **Library** | IndexedDB-backed saved recordings: open, rename, re-generate, compare |
+| **Library** | IndexedDB-backed saved recordings: open, rename, re-generate, compare, share as `.ptpack` |
+| **⚡ Autopilot** | The extension performs a saved recording itself — anchors-only (a miss stops, never a wrong click), per-step confirm or free-run, parameter form, masked values always typed by a human |
+| **🧾 Evidence** | Every autopilot run (and opted-in walkthroughs) leaves a local run record: per-step status + screenshots, exportable report — nothing sent anywhere |
+| **Runs table (CSV)** | Paste rows of parameter values, ⚡ Run all rows — one evidence record per row; scripts get a `-CsvPath`/`--csv` batch wrapper built from parameter *names* only |
+| **⏰ Drift sentinel** | Watched recordings re-verify daily in a background tab; new drift raises a notification + badge |
 | **✓ Verify** | Replays anchors read-only against the live UI; traffic-light drift report with one-click selector repair |
 | **▶ Walkthrough** | The SOP as a live guide: highlights each step on the real page, auto-advances when you perform it |
 | **⇄ Diff** | Compare two recordings of one procedure: unchanged / relabeled / added / removed, plus an optional LLM change-management summary |
+| **⑂ Branch-aware SOPs** | Tag variant recordings under a trunk and generate ONE SOP with decision points, branch sub-sequences, and a mermaid flowchart |
+| **🖌 Redaction brush** | Black out screenshot regions permanently before exporting or sharing |
 | **Generate** | SOP (Markdown/HTML), PowerShell (Selenium+UIA), pure-HTTP PowerShell (`Invoke-WebRequest`/`Invoke-RestMethod` replaying the captured request log), Playwright script, read-only Playwright regression test, Automation Anywhere build sheet |
 | **Run-time parameters** | Mark per-run inputs (JML-style) on any step: `<NAME>` placeholders + Inputs list in SOPs, mandatory named parameters in scripts |
 | **🔐 Delinea Secret Server** | Generated scripts source credentials from on-prem SS at runtime (windows/token auth) and follow the rotate-verify-write-back pattern for service-account password changes |
@@ -50,9 +56,9 @@ manifest.json            MV3 manifest
 background.js            Session ledger, screenshots, LLM clients, prompts, audit, native port
 content.js / content.css Semantic DOM capture, anchor resolution, walkthrough overlay
 common.js                Shared pure logic (anchors, diff, narration mapping) — tested in tests.html
-db.js                    IndexedDB module (recordings + screenshot blobs)
+db.js                    IndexedDB module (recordings + screenshot blobs + evidence runs)
 sidepanel.*              Recorder UI, window-capture engine, mic narration, generation, export
-library.js / verify.js / walkthrough.js / diff.js   Library tab features
+library.js / verify.js / walkthrough.js / diff.js / autopilot.js / redact.js   Library tab features
 options.* / mic.*        Settings · one-shot mic-permission helper
 native-host/             Windows UIA companion (PowerShell 5.1+, embedded C#)
 docs/                    DESIGN · INSTALL · USAGE · TESTING
