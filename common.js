@@ -178,6 +178,38 @@ const PTCommon = (() => {
     return { maskedSteps, shotSteps: shots, narratedSteps, captionedSteps, paramSteps, stepCount: steps.length };
   }
 
+  // RFC-4180-ish CSV parser for the runs table: quoted fields, "" escapes,
+  // CR/LF/CRLF line ends. Header row is trimmed; data rows are kept verbatim
+  // (including ragged lengths — the caller validates against its params).
+  function parseCsv(text) {
+    const s = String(text || "");
+    const out = [];
+    let row = [], field = "", inQ = false;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (inQ) {
+        if (c === '"') {
+          if (s[i + 1] === '"') { field += '"'; i++; }
+          else inQ = false;
+        } else field += c;
+      } else if (c === '"') {
+        inQ = true;
+      } else if (c === ",") {
+        row.push(field); field = "";
+      } else if (c === "\n" || c === "\r") {
+        if (c === "\r" && s[i + 1] === "\n") i++;
+        row.push(field); field = "";
+        out.push(row); row = [];
+      } else {
+        field += c;
+      }
+    }
+    if (field !== "" || row.length) { row.push(field); out.push(row); }
+    const nonEmpty = out.filter(r => r.some(f => f.trim() !== ""));
+    const headers = (nonEmpty.shift() || []).map(h => h.trim());
+    return { headers, rows: nonEmpty };
+  }
+
   // Reduce an evidence run's per-step statuses into its outcome line.
   // statuses: "done" | "confirmed" | "manual" | "skipped" | "failed"
   function summarizeRun(steps) {
@@ -205,6 +237,6 @@ const PTCommon = (() => {
   return {
     normLabel, labelMatches, anchorList, samePage, sameOrigin, urlHost,
     summarizeVerify, diffSteps, summarizeDiff, mapNarration, auditStats,
-    summarizeRun, blobToDataUrl
+    summarizeRun, parseCsv, blobToDataUrl
   };
 })();

@@ -631,10 +631,11 @@ async function shotDataFor(step) {
 // Generation source: the live session, or a saved recording from the library.
 // Returns steps plus the captured HTTP log (consumed only by the psweb target).
 async function resolveSource(recordingId) {
-  if (!recordingId) return { steps: session.steps, http: session.http || [] };
+  if (!recordingId) return { steps: session.steps, http: session.http || [], paramSets: 0 };
   const rec = await PTDB.getRecording(recordingId);
   if (!rec) throw new Error("Recording not found in library.");
-  return { steps: rec.steps, http: rec.http || [] };
+  // paramSets travels as a COUNT only — row values never leave the machine.
+  return { steps: rec.steps, http: rec.http || [], paramSets: (rec.paramSets || []).length };
 }
 
 function buildActionLog(steps) {
@@ -854,6 +855,19 @@ C. If the procedure changes a service-account password: generate it locally (cry
 
 const SS_RULES = { powershell: SS_RULES_PS, psweb: SS_RULES_PS, playwright: SS_RULES_NODE };
 
+// CSV batch-mode prompt modifiers — appended when the source recording has a
+// saved runs table. Only the parameter NAMES appear here; the CSV row VALUES
+// never leave the machine (the generated script reads the file at run time).
+const CSV_RULES_PS = `ADDITIONAL REQUIREMENT — CSV batch runs:
+The operator keeps a runs table whose CSV columns are EXACTLY these run-time parameter names: <NAMES>.
+Put the per-run work in one main function whose parameters use those exact names, and add an optional -CsvPath [string] script parameter: when provided, Import-Csv -Path $CsvPath | ForEach-Object { } invokes the main function once per row, splatting the row's properties onto the matching parameters (@row-style); when absent, keep the single-run parameters. Log each row's outcome with its row number and stop on the first failing row. Only the column NAMES above are known here — never invent sample values.`;
+
+const CSV_RULES_NODE = `ADDITIONAL REQUIREMENT — CSV batch runs:
+The operator keeps a runs table whose CSV columns are EXACTLY these run-time parameter names: <NAMES>.
+Add a batch mode: when invoked with --csv <path>, parse the file with a small built-in RFC-4180 parser (no dependencies) and run the main flow once per row, using each row's values in place of the corresponding environment variables; log each row's outcome with its row number and stop on the first failing row. Without --csv, keep the single-run env-var behavior. Only the column NAMES above are known here — never invent sample values.`;
+
+const CSV_RULES = { powershell: CSV_RULES_PS, psweb: CSV_RULES_PS, playwright: CSV_RULES_NODE };
+
 // Build-only counterpart for automation targets. Text-only by design:
 // anchors are the payload, never pixels.
 // extras: { http: [...captured requests], secretServer: bool }
@@ -862,6 +876,10 @@ function buildAutomationRequest(steps, userContext, target, extras = {}) {
   let sys = AUTOMATION_PROMPTS[target];
   if (!sys) throw new Error("Unknown automation target: " + target);
   if (extras.secretServer && SS_RULES[target]) sys += "\n\n" + SS_RULES[target];
+  if (extras.paramSets && CSV_RULES[target]) {
+    const names = [...new Set(steps.filter(s => !s.masked).map(s => s.param).filter(Boolean))];
+    if (names.length) sys += "\n\n" + CSV_RULES[target].replace("<NAMES>", names.join(", "));
+  }
 
   const log = JSON.stringify(buildAutomationLog(steps), null, 1);
   let userText = `Convert this recorded session into ${TARGET_DOC[target]}.\n\nACTION LOG:\n${log}`;
@@ -881,7 +899,7 @@ async function generateAutomation(src, userContext, target, extras = {}) {
   const st = await getSettings();
   requireEndpoint(st);
   const req = buildAutomationRequest(src.steps, userContext, target,
-    Object.assign({ http: src.http }, extras));
+    Object.assign({ http: src.http, paramSets: src.paramSets }, extras));
   if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
   return callOpenAI(st, req.system, req.userText, req.shots);
 }
@@ -1038,7 +1056,7 @@ async function buildAudit(target, userContext, recordingId, recordingIdB, extras
     req = target === "sop"
       ? await buildSopRequest(steps, userContext, st)
       : buildAutomationRequest(steps, userContext, target,
-          Object.assign({ http: src.http }, extras));
+          Object.assign({ http: src.http, paramSets: src.paramSets }, extras));
   }
   const body = st.provider === "anthropic"
     ? anthropicBody(st, req.system, req.userText, req.shots)

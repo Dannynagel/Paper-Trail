@@ -179,6 +179,33 @@ eq("summarizeRun null", PTCommon.summarizeRun(null), "no steps");
 eq("summarizeRun ignores unknown statuses",
   PTCommon.summarizeRun(runSteps("done", "pending")), "1 executed");
 
+// ── parseCsv (runs table) ────────────────────────────────────────────────
+eq("parseCsv plain rows",
+  PTCommon.parseCsv("A,B\n1,2\n3,4"),
+  { headers: ["A", "B"], rows: [["1", "2"], ["3", "4"]] });
+eq("parseCsv quoted field keeps its comma",
+  PTCommon.parseCsv('NAME,CITY\n"Doe, Jane",Berlin'),
+  { headers: ["NAME", "CITY"], rows: [["Doe, Jane", "Berlin"]] });
+eq("parseCsv escaped quotes",
+  PTCommon.parseCsv('Q\n"say ""hi"" now"'),
+  { headers: ["Q"], rows: [['say "hi" now']] });
+eq("parseCsv CRLF line endings",
+  PTCommon.parseCsv("A,B\r\n1,2\r\n"),
+  { headers: ["A", "B"], rows: [["1", "2"]] });
+eq("parseCsv quoted field spanning a newline",
+  PTCommon.parseCsv('A,B\n"line1\nline2",x'),
+  { headers: ["A", "B"], rows: [["line1\nline2", "x"]] });
+eq("parseCsv ragged rows preserved for the caller to reject",
+  PTCommon.parseCsv("A,B\n1\n1,2,3"),
+  { headers: ["A", "B"], rows: [["1"], ["1", "2", "3"]] });
+eq("parseCsv trims headers, keeps values verbatim",
+  PTCommon.parseCsv(" A , B \n x , y "),
+  { headers: ["A", "B"], rows: [[" x ", " y "]] });
+eq("parseCsv skips blank lines",
+  PTCommon.parseCsv("A\n\n1\n\n"),
+  { headers: ["A"], rows: [["1"]] });
+eq("parseCsv empty input", PTCommon.parseCsv(""), { headers: [], rows: [] });
+
 const h = document.createElement("h1");
 h.className = failed ? "fail" : "pass";
 h.textContent = `${passed} passed, ${failed} failed`;

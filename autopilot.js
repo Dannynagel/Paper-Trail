@@ -48,6 +48,33 @@ async function startAutopilot(recId, presetValues, opts) {
   renderApSetup(rec);
 }
 
+// Batch mode: one sequential free-run per saved runs-table row, one evidence
+// record per row, reusing a single tab. A row that ends any way other than
+// normal completion (abort, closed tab) stops the whole batch.
+async function startAutopilotBatch(recId) {
+  if (ap) return;
+  if (typeof walk !== "undefined" && walk) {
+    alert("A walkthrough is in progress — end it first.");
+    return;
+  }
+  if (typeof verifyRun !== "undefined" && verifyRun) {
+    alert("A Verify run is in progress — let it finish first.");
+    return;
+  }
+  if (currentSession.recording) {
+    alert("Stop recording before running Autopilot.");
+    return;
+  }
+  const rec = await PTDB.getRecording(recId);
+  if (!rec || !rec.steps.length || !rec.paramSets || !rec.paramSets.length) return;
+  apRunBatch(rec, 0, null);
+}
+
+function apRunBatch(rec, index, tabId) {
+  const set = rec.paramSets[index];
+  apBegin(rec, set.values, false, { index, total: rec.paramSets.length, name: set.name }, tabId);
+}
+
 // ── Setup form: parameter values (panel-local only) + run mode ─────────────
 function renderApSetup(rec) {
   const params = apParamNames(rec);
@@ -99,7 +126,7 @@ function renderApSetup(rec) {
   detail.scrollIntoView({ behavior: "smooth" });
 }
 
-function apBegin(rec, values, stepConfirm) {
+function apBegin(rec, values, stepConfirm, batch, tabId) {
   const params = {};
   for (const p of apParamNames(rec)) params[p] = (values || {})[p] || "";
   ap = {
@@ -109,7 +136,8 @@ function apBegin(rec, values, stepConfirm) {
     states: rec.steps.map(() => "pending"),
     values: values || {},
     stepConfirm,
-    tabId: null,
+    batch: batch || null,
+    tabId: tabId || null, // batch rows reuse the previous row's tab
     stopped: false,
     endMessage: "",
     failReason: "",
@@ -126,6 +154,7 @@ function apBegin(rec, values, stepConfirm) {
       finishedAt: 0,
       mode: "autopilot",
       params,
+      batchRow: batch ? batch.name : undefined,
       steps: []
     }
   };
@@ -250,7 +279,12 @@ async function apFinish() {
   const parts = [`${count("done") + count("confirmed")} executed`];
   if (count("manual")) parts.push(`${count("manual")} done by you`);
   if (count("skipped")) parts.push(`${count("skipped")} skipped`);
-  await apEnd(`Autopilot complete ✓ — ${parts.join(", ")}.`);
+  const batch = ap.batch;
+  const rec = ap.rec;
+  const tabId = ap.tabId;
+  const rowNote = batch ? ` (row ${batch.index + 1}/${batch.total})` : "";
+  await apEnd(`Autopilot complete ✓${rowNote} — ${parts.join(", ")}.`);
+  if (batch && batch.index + 1 < batch.total) apRunBatch(rec, batch.index + 1, tabId);
 }
 
 async function apEnd(message) {
@@ -455,7 +489,8 @@ function renderApPanel(state) {
   detail.hidden = false;
   detail.innerHTML = `
     <div class="result-bar">
-      <span>Autopilot — ${esc(ap.rec.title)}${ap.stepConfirm ? " (per-step confirm)" : ""}</span>
+      <span>Autopilot — ${esc(ap.rec.title)}${ap.stepConfirm ? " (per-step confirm)" : ""}${
+        ap.batch ? ` · row ${ap.batch.index + 1}/${ap.batch.total}` : ""}</span>
       <div class="result-actions"><button id="apAbort" class="ghost">✕ Abort</button></div>
     </div>
     <div class="status">${ap.idx + 1} / ${ap.steps.length} · ${executed} executed</div>

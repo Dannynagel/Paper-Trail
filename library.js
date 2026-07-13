@@ -94,6 +94,7 @@ async function openRecording(id) {
           </div>
         </div>`).join("")}
     </section>
+    ${csvParamNames(rec).length ? csvSectionHtml(rec) : ""}
     ${runs.length ? `
       <div class="result-bar"><span>Runs (${runs.length}) — evidence stays local</span></div>
       <section class="steps lib-steps">
@@ -109,6 +110,7 @@ async function openRecording(id) {
       </section>` : ""}`;
   detail.querySelectorAll("button[data-runid]").forEach(btn =>
     btn.addEventListener("click", () => openRun(btn.dataset.runid)));
+  if (csvParamNames(rec).length) wireCsvSection(rec);
   detail.querySelectorAll("button[data-libact='param']").forEach(btn =>
     btn.addEventListener("click", async () => {
       const fresh = await PTDB.getRecording(rec.id);
@@ -128,6 +130,89 @@ async function openRecording(id) {
     libRevokeUrls();
   });
   detail.scrollIntoView({ behavior: "smooth" });
+}
+
+// ── Runs table (CSV → rec.paramSets) — values stay local, never sent ───────
+// Columns are the recording's run-time parameter names (masked-step params
+// excluded: those values are typed by a human on every run).
+function csvParamNames(rec) {
+  return [...new Set(rec.steps.filter(s => !s.masked).map(s => s.param).filter(Boolean))];
+}
+
+function csvSectionHtml(rec) {
+  const names = csvParamNames(rec);
+  const saved = (rec.paramSets || []).length;
+  const canBatch = typeof startAutopilotBatch === "function" && saved;
+  return `
+    <div class="result-bar"><span>Runs table — ${saved ? `${saved} row(s) saved` : "no rows yet"}</span></div>
+    <div class="lib-actions" style="display:block;padding:8px">
+      <div class="page">Paste CSV with EXACTLY these columns: <b>${names.map(esc).join(", ")}</b>.
+        Values stay in this browser — only the column names ever reach a model.</div>
+      <textarea id="csvText" rows="4" style="width:100%;margin:6px 0"
+        placeholder="${esc(names.join(","))}&#10;first run's values…"></textarea>
+      <div class="lib-actions">
+        <button id="csvSave">Save rows</button>
+        <button id="csvTemplate" class="ghost" title="CSV with the right header row">Download CSV template</button>
+        ${canBatch ? `<button id="csvRunAll" class="primary" title="One autopilot run + evidence record per row, stop on failure">⚡ Run all rows</button>` : ""}
+        ${saved ? `<button id="csvClear" class="ghost danger">Clear rows</button>` : ""}
+      </div>
+      <div id="csvStatus" class="status" hidden></div>
+    </div>`;
+}
+
+function wireCsvSection(rec) {
+  const names = csvParamNames(rec);
+  const status = (msg, err) => {
+    const el = $("csvStatus");
+    el.hidden = false;
+    el.className = "status" + (err ? " err" : "");
+    el.textContent = msg;
+  };
+
+  $("csvTemplate").addEventListener("click", () =>
+    download(`${rec.title.replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40) || "recording"}_runs.csv`,
+      names.join(",") + "\r\n", "text/csv"));
+
+  $("csvSave").addEventListener("click", async () => {
+    const { headers, rows } = PTCommon.parseCsv($("csvText").value);
+    if (!rows.length) { status("No data rows found under the header.", true); return; }
+    const missing = names.filter(n => !headers.includes(n));
+    const extra = headers.filter(h => !names.includes(h));
+    if (missing.length || extra.length) {
+      status(`Header mismatch — ${missing.length ? "missing: " + missing.join(", ") : ""}` +
+        `${missing.length && extra.length ? "; " : ""}${extra.length ? "unexpected: " + extra.join(", ") : ""}`, true);
+      return;
+    }
+    const bad = rows.findIndex(r => r.length !== headers.length);
+    if (bad !== -1) {
+      status(`Row ${bad + 1} has ${rows[bad].length} field(s), expected ${headers.length}.`, true);
+      return;
+    }
+    const paramSets = rows.map((r, i) => {
+      const values = {};
+      headers.forEach((h, col) => values[h] = r[col]);
+      return { name: `Row ${i + 1}`, values };
+    });
+    const fresh = await PTDB.getRecording(rec.id);
+    if (!fresh) return;
+    fresh.paramSets = paramSets;
+    fresh.updatedAt = Date.now();
+    await PTDB.saveRecording(fresh);
+    openRecording(rec.id);
+  });
+
+  const clear = document.getElementById("csvClear");
+  if (clear) clear.addEventListener("click", async () => {
+    const fresh = await PTDB.getRecording(rec.id);
+    if (!fresh) return;
+    delete fresh.paramSets;
+    fresh.updatedAt = Date.now();
+    await PTDB.saveRecording(fresh);
+    openRecording(rec.id);
+  });
+
+  const runAll = document.getElementById("csvRunAll");
+  if (runAll) runAll.addEventListener("click", () => startAutopilotBatch(rec.id));
 }
 
 // ── Evidence run report (all local; export splices screenshots as data URLs) ─
