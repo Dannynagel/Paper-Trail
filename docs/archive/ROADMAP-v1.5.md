@@ -1,3 +1,5 @@
+> **Status: IMPLEMENTED — shipped as v1.5.0.** All seven features below (plus the release steps) landed on `main`; see `CHANGELOG.md` § 1.5.0 for what shipped and `docs/DESIGN.md` "v1.5 additions" for how. The automated harness this brief references now lives in `test/`. Kept for historical reference only.
+
 # Paper Trail v1.5 — Implementation Brief
 
 **Audience: Claude Code (or any coding agent) executing this plan.** This is a self-contained execution spec. Read the "Codebase primer" and "Invariants" first — they are load-bearing and violating them will break the extension. Then implement the features in order; each is a separate commit.

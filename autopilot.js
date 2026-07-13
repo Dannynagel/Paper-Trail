@@ -138,6 +138,7 @@ function apBegin(rec, values, stepConfirm, batch, tabId) {
     stepConfirm,
     batch: batch || null,
     tabId: tabId || null, // batch rows reuse the previous row's tab
+    childTabs: new Set(), // tabs the run tab opened — adoption candidates on page mismatch
     stopped: false,
     endMessage: "",
     failReason: "",
@@ -160,6 +161,7 @@ function apBegin(rec, values, stepConfirm, batch, tabId) {
   };
   chrome.tabs.onUpdated.addListener(apOnTabUpdated);
   chrome.tabs.onRemoved.addListener(apOnTabRemoved);
+  chrome.tabs.onCreated.addListener(apOnTabCreated);
   apLoop();
 }
 
@@ -292,6 +294,7 @@ async function apEnd(message) {
   clearInterval(ap.pingTimer);
   chrome.tabs.onUpdated.removeListener(apOnTabUpdated);
   chrome.tabs.onRemoved.removeListener(apOnTabRemoved);
+  chrome.tabs.onCreated.removeListener(apOnTabCreated);
   if (ap.tabId) await apSendFrames({ cmd: "walkDisarm" });
   if (ap.run && ap.run.steps.length) {
     ap.run.finishedAt = Date.now();
@@ -325,7 +328,7 @@ function apWait() {
 function apSleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Tab / frame plumbing (mirrors walkthrough.js, own tab state) ───────────
-function apWaitLoad(ms) {
+function apWaitLoad(ms, tabId) {
   return new Promise((res) => {
     let settled = false;
     const finish = (ok) => {
@@ -335,11 +338,38 @@ function apWaitLoad(ms) {
       res(ok);
     };
     const onUpd = (id, info) => {
-      if (ap && id === ap.tabId && info.status === "complete") finish(true);
+      if (!ap) return finish(false);
+      const want = tabId !== undefined ? tabId : ap.tabId;
+      if (id === want && info.status === "complete") finish(true);
     };
     chrome.tabs.onUpdated.addListener(onUpd);
     setTimeout(() => finish(false), ms);
   });
+}
+
+// A recorded click may have opened a new tab (target=_blank, window.open) —
+// the recording continued there, so the run must too. When the current tab
+// isn't on the step's page, adopt a child tab that is, instead of navigating
+// away and losing the flow.
+async function apAdoptChildAt(url) {
+  for (const id of [...ap.childTabs]) {
+    let tab = await chrome.tabs.get(id).catch(() => null);
+    if (!tab) { ap.childTabs.delete(id); continue; }
+    if (tab.status !== "complete" && PTCommon.sameOrigin(tab.url || tab.pendingUrl || "", url)) {
+      await apWaitLoad(AP_NAV_TIMEOUT, id);
+      tab = await chrome.tabs.get(id).catch(() => null);
+      if (!tab) { ap.childTabs.delete(id); continue; }
+    }
+    if (PTCommon.samePage(tab.url, url)) {
+      ap.childTabs.delete(id);
+      ap.childTabs.add(ap.tabId); // the old run tab could itself spawn later steps' pages
+      ap.tabId = id;
+      await chrome.tabs.update(id, { active: true }).catch(() => {});
+      await apSleep(AP_NAV_SETTLE);
+      return true;
+    }
+  }
+  return false;
 }
 
 async function apEnsureAt(url) {
@@ -357,6 +387,7 @@ async function apEnsureAt(url) {
     if (tab.status !== "complete") { await apWaitLoad(AP_NAV_TIMEOUT); await apSleep(AP_NAV_SETTLE); }
     return true;
   }
+  if (ap.childTabs.size && await apAdoptChildAt(url)) return true;
   const done = apWaitLoad(AP_NAV_TIMEOUT);
   await chrome.tabs.update(ap.tabId, { url });
   const ok = await done;
@@ -426,8 +457,14 @@ function apOnTabUpdated(id, info) {
   if (ap.rearm) setTimeout(() => { if (ap && ap.rearm) ap.rearm(); }, 600);
 }
 
+function apOnTabCreated(tab) {
+  if (ap && tab.openerTabId === ap.tabId) ap.childTabs.add(tab.id);
+}
+
 function apOnTabRemoved(id) {
-  if (!ap || id !== ap.tabId) return;
+  if (!ap) return;
+  ap.childTabs.delete(id);
+  if (id !== ap.tabId) return;
   ap.stopped = true;
   ap.endMessage = "Autopilot tab was closed.";
   if (ap.waiting) ap.waiting.resolve("aborted");

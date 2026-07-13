@@ -47,7 +47,7 @@ Clicks & fields (DOM / UIA)  ──►  Semantic step ledger  ──►  LLM  �
 2. Side panel → **⚙** → pick a provider (or point Custom at local Ollama), paste a key if needed
 3. **● Start recording**, do the thing, **■ Stop**, **Generate** — then **💾 Save** to keep it in the Library
 
-Full guides: **[Install](docs/INSTALL.md)** · **[Usage](docs/USAGE.md)** · **[Design](docs/DESIGN.md)** · **[Testing](docs/TESTING.md)** · **[v1.5 Roadmap](docs/ROADMAP-v1.5.md)**
+Full guides: **[Install](docs/INSTALL.md)** · **[Usage](docs/USAGE.md)** · **[Design](docs/DESIGN.md)** · **[Testing](docs/TESTING.md)** · [v1.5 roadmap (implemented)](docs/archive/ROADMAP-v1.5.md)
 
 ## Repository layout
 
@@ -63,6 +63,8 @@ options.* / mic.*        Settings · one-shot mic-permission helper
 native-host/             Windows UIA companion (PowerShell 5.1+, embedded C#)
 docs/                    DESIGN · INSTALL · USAGE · TESTING
 tests.html               Browser-runnable assertions for the pure logic
+alpha-test/              Alpha test harness: headless tests.html runner + two end-to-end smoke suites
+
 ```
 
 ## Security posture (summary)
