@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>PT Test Form</title></head>
+<body>
+  <h1>Order form</h1>
+  <label for="qty">Quantity</label>
+  <input id="qty" type="text" name="quantity">
+  <label for="pw">Account password</label>
+  <input id="pw" type="password" name="password">
+  <button id="submitBtn" data-testid="submit-order" type="button">Submit Order</button>
+  <div id="clicked"></div>
+  <script>
+    document.getElementById("submitBtn").addEventListener("click", () => {
+      document.getElementById("clicked").textContent = "clicked";
+      fetch("/submit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ order: "42", password: "hunter2" })
+      }).catch(() => {});
+    });
+  </script>
+</body>
+</html>

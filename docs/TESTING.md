@@ -1,10 +1,12 @@
 # Paper Trail — Manual Test Script
 
 There is no build step and most of the extension is Chrome-API glue, so testing is
-two-layered: **pure logic** runs in `tests.html`, and the **integration paths** below
-are walked by hand against a loaded unpacked extension (`chrome://extensions` →
-Developer mode → Load unpacked). Re-run the relevant section after touching the
-corresponding files.
+three-layered: **pure logic** runs in `tests.html`; the **alpha test harness**
+(`alpha-test/` — see its README) drives the loaded extension end-to-end in headless
+Chromium against stub endpoints and is the automated regression gate; and the
+**integration paths** below are walked by hand against a loaded unpacked extension
+(`chrome://extensions` → Developer mode → Load unpacked). Re-run the relevant
+section after touching the corresponding files.
 
 ## 0. Pure logic (automated)
 
@@ -114,11 +116,13 @@ stub endpoints and fake media devices):
 Pure logic (`tests.html`): `parseCsv` (quoted/escaped/CRLF/multi-line/ragged),
 `summarizeRun` outcome lines.
 
-The automated smoke harness covers the full happy paths (autopilot free-run and
-per-step confirm, masked-value human gate, anchors-only stop, evidence records
-and export, CSV validation and Run-all-rows, `sentinelRunNow`, variant tagging
-and `generateBranch` payload, `.ptpack` round-trip, `redactBlob` + brush apply).
-Manual integration paths worth walking against real sites:
+The alpha test harness currently validates v1.5 at load time only (worker +
+panel boot with zero console errors) — dedicated automated checks for the
+happy paths (autopilot free-run and per-step confirm, masked-value human gate,
+anchors-only stop, evidence records and export, CSV validation and
+Run-all-rows, `sentinelRunNow`, variant tagging and `generateBranch` payload,
+`.ptpack` round-trip, `redactBlob` + brush apply) are the next harness
+addition. Until then, walk them manually, along with the real-site paths:
 
 1. **Autopilot on a real SPA** (React/Vue app): free-run a saved recording;
    values set by the native-setter path must actually update the app's state
