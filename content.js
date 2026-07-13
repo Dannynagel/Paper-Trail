@@ -93,7 +93,10 @@
     return clean(el.placeholder || el.name || el.title || el.type || el.tagName.toLowerCase());
   }
 
-  function describe(target) {
+  // Label + kind only — no selector/anchor extraction. The scan paths call
+  // this per candidate element; computing anchors there (several full-document
+  // uniqueness probes each) was pure waste for candidates that don't match.
+  function labelKindFor(target) {
     const el = target.closest ? (target.closest(INTERACTIVE) || target) : target;
     const tag = (el.tagName || "").toLowerCase();
     const role = el.getAttribute && el.getAttribute("role");
@@ -114,8 +117,13 @@
         el.textContent || el.value || el.title || el.alt || tag
       );
     }
-    const selector = cssPath(el);
-    return { label: label || "(unlabeled)", kind, tag, selector, anchors: anchorsFor(el, selector) };
+    return { el, tag, kind, label: label || "(unlabeled)" };
+  }
+
+  function describe(target) {
+    const d = labelKindFor(target);
+    const selector = cssPath(d.el);
+    return { label: d.label, kind: d.kind, tag: d.tag, selector, anchors: anchorsFor(d.el, selector) };
   }
 
   // Attribute selector, returned only when it uniquely identifies the element.
@@ -204,7 +212,7 @@
       let el = null;
       try { el = document.querySelector(sel); } catch (e) { return null; /* invalid selector */ }
       if (!el || !isVisible(el)) return null;
-      if (step.label && !PTCommon.labelMatches(describe(el).label, step.label)) return null;
+      if (step.label && !PTCommon.labelMatches(labelKindFor(el).label, step.label)) return null;
       return el;
     };
 
@@ -229,7 +237,7 @@
       const matches = [];
       for (const c of document.querySelectorAll(INTERACTIVE)) {
         if (!isVisible(c)) continue;
-        const d = describe(c);
+        const d = labelKindFor(c);
         if (!PTCommon.labelMatches(d.label, step.label)) continue;
         if (step.kind && d.kind && step.kind !== d.kind) continue;
         matches.push(c);
@@ -352,7 +360,7 @@
       }
     }
     if (!via) {
-      const d = describe(raw);
+      const d = labelKindFor(raw);
       if (PTCommon.labelMatches(d.label, armedStep.label) &&
           (!armedStep.kind || !d.kind || d.kind === armedStep.kind)) via = "label";
     }
@@ -375,7 +383,7 @@
     for (const c of document.querySelectorAll(INTERACTIVE)) {
       if (count >= 12) break;
       if (!isVisible(c)) continue;
-      if (PTCommon.normLabel(describe(c).label).includes(want)) {
+      if (PTCommon.normLabel(labelKindFor(c).label).includes(want)) {
         c.classList.add("paper-trail-text-hit");
         count++;
       }
@@ -541,7 +549,8 @@
     const cy = Math.round(rect.top + rect.height / 2);
 
     let value = "";
-    const sensitive = type === "password" || /pass|secret|token|key|ssn|card/i.test(el.name || "") ||
+    // One sensitive-name policy with the HTTP-log masking (PTCommon.looksSecret).
+    const sensitive = type === "password" || PTCommon.looksSecret(el.name) ||
                       (el.autocomplete || "").includes("cc-");
     if (tag === "select") {
       const opt = el.selectedOptions && el.selectedOptions[0];

@@ -4,6 +4,39 @@
 
 const PTCommon = (() => {
 
+  // ── Shared policy/data tables ─────────────────────────────────────────────
+
+  // One home for the extension's settings defaults; read by the worker
+  // (getSettings), the options page, and the panel's transcription path.
+  const SETTINGS_DEFAULTS = {
+    provider: "anthropic",
+    apiKey: "",
+    model: "",
+    customUrl: "",
+    includeScreenshots: false,
+    captureValues: false,
+    captionOnCapture: false,
+    maxSteps: 150,
+    transcribeUrl: "https://api.openai.com/v1/audio/transcriptions",
+    transcribeModel: "whisper-1",
+    transcribeKey: ""
+  };
+
+  function defaultModel(provider) {
+    return provider === "anthropic" ? "claude-sonnet-4-6"
+         : provider === "custom" ? "gemma4:12b-it-qat" // Ollama-friendly local default
+         : "gpt-4o";
+  }
+
+  // One sensitive-name policy for typed-value masking (content script) and
+  // HTTP-log masking (worker). Superset of both former copies — a field the
+  // HTTP log would mask must never be captured in cleartext as a typed value.
+  const SECRETY_RE = /pass|secret|token|key|ssn|card|auth|pwd|credential|session/i;
+
+  function looksSecret(name) {
+    return SECRETY_RE.test(String(name || ""));
+  }
+
   // Normalize a captured label for comparison: case/whitespace-insensitive,
   // tolerant of the "…" the recorder appends when it truncates at 80 chars.
   function normLabel(s) {
@@ -288,17 +321,20 @@ const PTCommon = (() => {
     return best;
   }
 
-  // Blob → data URL (panel/content contexts; the service worker has its own).
-  function blobToDataUrl(blob) {
-    return new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result);
-      r.onerror = () => rej(r.error);
-      r.readAsDataURL(blob);
-    });
+  // Blob → data URL. arrayBuffer+btoa rather than FileReader so the SAME
+  // implementation works in the service worker, the panel, and tests.html.
+  async function blobToDataUrl(blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let bin = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return `data:${blob.type || "image/jpeg"};base64,` + btoa(bin);
   }
 
   return {
+    SETTINGS_DEFAULTS, defaultModel, looksSecret,
     normLabel, labelMatches, anchorList, samePage, sameOrigin, urlHost,
     summarizeVerify, diffSteps, summarizeDiff, mapNarration, auditStats,
     summarizeRun, parseCsv, paramNames, fileStem,

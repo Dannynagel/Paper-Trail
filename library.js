@@ -296,14 +296,9 @@ async function openRun(runId) {
   const reportMd = () => (reportOnce = reportOnce || runReportMarkdown(run));
   $("runDlMd").addEventListener("click", async () =>
     download(`Evidence_${runFileStem(run)}.md`, await reportMd(), "text/markdown"));
-  $("runDlHtml").addEventListener("click", async () => {
-    const body = mdToHtml(await reportMd());
+  $("runDlHtml").addEventListener("click", async () =>
     download(`Evidence_${runFileStem(run)}.html`,
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Evidence — ${esc(run.recTitle)}</title>
-<style>body{font:15px/1.6 system-ui,sans-serif;max-width:820px;margin:32px auto;padding:0 24px}
-img{max-width:100%;border:1px solid #ccc;border-radius:6px;margin:8px 0}</style>
-</head><body>${body}</body></html>`, "text/html");
-  });
+      htmlDoc(`Evidence — ${run.recTitle}`, mdToHtml(await reportMd())), "text/html"));
   detail.scrollIntoView({ behavior: "smooth" });
 }
 

@@ -74,12 +74,9 @@ function renderDiffReport() {
   });
   $("diffMd").addEventListener("click", () =>
     download(`Change_Report_${diffFileStem()}.md`, diffMarkdown(), "text/markdown"));
-  $("diffHtml").addEventListener("click", () => {
-    const body = mdToHtml(diffMarkdown());
+  $("diffHtml").addEventListener("click", () =>
     download(`Change_Report_${diffFileStem()}.html`,
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Change report</title></head><body>${body}</body></html>`,
-      "text/html");
-  });
+      htmlDoc("Change report", mdToHtml(diffMarkdown())), "text/html"));
   $("diffGen").addEventListener("click", generateDiffSummary);
   $("diffAudit").addEventListener("click", auditDiffSummary);
   detail.scrollIntoView({ behavior: "smooth" });

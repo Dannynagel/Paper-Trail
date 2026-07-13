@@ -185,17 +185,11 @@ const PTDB = (() => {
     return eachCursor(tx.objectStore("shots").index("byRec").openCursor(recId), visit);
   }
 
-  async function estimateSize(recId) {
-    const [rec, shots] = await Promise.all([getRecording(recId), getShotsByRec(recId)]);
-    const meta = rec ? JSON.stringify(rec).length : 0;
-    return meta + shots.reduce((n, s) => n + (s.blob ? s.blob.size : 0), 0);
-  }
-
   return {
     LIVE_REC_ID,
     saveRecording, listRecordings, getRecording, renameRecording, deleteRecording,
     putShot, getShot, getShotsByRec, deleteShot, deleteShotsByRec,
-    reassignShots, estimateSize,
+    reassignShots,
     saveRun, getRun, listRunsByRec, deleteRunsByRec
   };
 })();

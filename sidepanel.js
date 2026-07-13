@@ -1,4 +1,9 @@
-// Paper Trail — side panel
+// Paper Trail — side panel.
+// Loads FIRST among the panel scripts (see sidepanel.html) and publishes the
+// shared globals the feature modules (library/verify/walkthrough/autopilot/
+// diff/redact) rely on: $, esc, actionHtml, send, download, htmlDoc, mdToHtml,
+// spliceImages, currentSession, currentTarget/currentMarkdown + showResult,
+// objUrlCache, exclusiveModeBusy, askParamName, setGenSource, lastAudit.
 
 const $ = (id) => document.getElementById(id);
 let currentSession = { recording: false, steps: [] };
@@ -30,13 +35,20 @@ async function hydrateShots(root) {
 // ── Messaging helpers ──────────────────────────────────────────────────────
 const send = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, res));
 
-async function refresh() {
-  const resp = await send({ cmd: "getState" });
-  if (!resp) return;
-  currentSession = resp.session;
-  // Recording stopped by any path (button, shortcut, clear) → wrap up narration.
-  if (!currentSession.recording && typeof micStream !== "undefined" && micStream) stopMic();
-  render();
+// sessionChanged fires twice per recorded step (push + screenshot attach) and
+// render() rebuilds the whole ledger, so bursts are coalesced into one refresh.
+let refreshTimer = null;
+function refresh() {
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(async () => {
+    refreshTimer = null;
+    const resp = await send({ cmd: "getState" });
+    if (!resp) return;
+    currentSession = resp.session;
+    // Recording stopped by any path (button, shortcut, clear) → wrap up narration.
+    if (!currentSession.recording && typeof micStream !== "undefined" && micStream) stopMic();
+    render();
+  }, 50);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -58,6 +70,16 @@ function fmtTime(ts, startedAt) {
 function actionHtml(text) {
   // step.text uses **bold** for element labels
   return esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+}
+
+// One guard for the mutually-exclusive attended modes (verify, walkthrough,
+// autopilot) and recording. Returns the user-facing message, or "" when clear.
+function exclusiveModeBusy() {
+  if (typeof walk !== "undefined" && walk) return "A walkthrough is in progress — end it first.";
+  if (typeof verifyRun !== "undefined" && verifyRun) return "A Verify run is in progress — let it finish first.";
+  if (typeof ap !== "undefined" && ap) return "Autopilot is running — stop it first.";
+  if (currentSession.recording) return "Stop recording first.";
+  return "";
 }
 
 function render() {
@@ -317,7 +339,7 @@ function renderDesktopStatus() {
     btn.textContent = "🖥 Stop window capture";
     btn.classList.add("active-rec");
   } else {
-    el.hidden = nativeOn ? false : true;
+    el.hidden = !nativeOn;
     if (nativeOn) el.textContent = "UIA ► semantic desktop capture active";
     btn.textContent = "🖥 Record a window";
     btn.classList.remove("active-rec");
@@ -445,8 +467,8 @@ async function transcribePending() {
 
 async function transcribeAudio(blob, startTs) {
   const st = await chrome.storage.local.get({
-    transcribeUrl: "https://api.openai.com/v1/audio/transcriptions",
-    transcribeModel: "whisper-1",
+    transcribeUrl: PTCommon.SETTINGS_DEFAULTS.transcribeUrl,
+    transcribeModel: PTCommon.SETTINGS_DEFAULTS.transcribeModel,
     transcribeKey: "",
     apiKey: ""
   });
@@ -799,9 +821,10 @@ function sopTitle() {
 $("btnDlMd").addEventListener("click", () =>
   download(`${sopTitle()}.md`, spliceImages(currentMarkdown), "text/markdown"));
 
-$("btnDlHtml").addEventListener("click", () => {
-  const body = mdToHtml(spliceImages(currentMarkdown));
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(sopTitle())}</title>
+// One styled, print-ready HTML wrapper for every .html export (SOP, evidence
+// report, diff report) — they used to carry three divergent copies.
+function htmlDoc(title, body) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>
 body{font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;max-width:820px;margin:32px auto;padding:0 24px;color:#1C2128}
 h1{font-size:26px;border-bottom:2px solid #1B4F72;padding-bottom:8px}
@@ -810,8 +833,10 @@ img{max-width:100%;border:1px solid #D8D8D2;border-radius:6px;margin:8px 0}
 li{margin:5px 0} code{background:#F0F0EA;padding:1px 5px;border-radius:3px}
 @media print{body{margin:8mm auto}img{page-break-inside:avoid}}
 </style></head><body>${body}</body></html>`;
-  download(`${sopTitle()}.html`, html, "text/html");
-});
+}
+
+$("btnDlHtml").addEventListener("click", () =>
+  download(`${sopTitle()}.html`, htmlDoc(sopTitle(), mdToHtml(spliceImages(currentMarkdown))), "text/html"));
 
 // ── Minimal Markdown renderer (headings, lists, bold/italic, img, code) ────
 function mdToHtml(md) {
@@ -846,9 +871,6 @@ function mdToHtml(md) {
       html += `<li>${inline(m[1])}</li>`;
     } else if (/^\s*$/.test(line)) {
       closeLists();
-    } else if (/^!\[/.test(line.trim())) {
-      closeLists();
-      html += `<p>${inline(line.trim())}</p>`;
     } else {
       closeLists();
       html += `<p>${inline(line)}</p>`;

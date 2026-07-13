@@ -219,6 +219,23 @@ eq("fileStem sanitizes and underscores",
 eq("fileStem caps length", PTCommon.fileStem("abcdef", 3), "abc");
 eq("fileStem falls back when nothing survives", PTCommon.fileStem("///", 60, "run"), "run");
 
+// ── looksSecret / settings defaults (shared policy tables) ───────────────
+eq("looksSecret catches the full policy set",
+  ["password", "authToken", "pwd2", "sessionId", "ssn", "cardNumber", "api_key", "credential"]
+    .map(PTCommon.looksSecret),
+  [true, true, true, true, true, true, true, true]);
+eq("looksSecret passes ordinary field names",
+  ["fullName", "quantity", "color", "email"].map(PTCommon.looksSecret),
+  [false, false, false, false]);
+eq("looksSecret tolerates empty/null",
+  [PTCommon.looksSecret(""), PTCommon.looksSecret(null)], [false, false]);
+eq("defaultModel per provider",
+  ["anthropic", "openai", "custom"].map(PTCommon.defaultModel),
+  ["claude-sonnet-4-6", "gpt-4o", "gemma4:12b-it-qat"]);
+eq("settings defaults carry the transcription endpoint",
+  PTCommon.SETTINGS_DEFAULTS.transcribeUrl.includes("/v1/audio/transcriptions") &&
+  PTCommon.SETTINGS_DEFAULTS.maxSteps === 150, true);
+
 const h = document.createElement("h1");
 h.className = failed ? "fail" : "pass";
 h.textContent = `${passed} passed, ${failed} failed`;

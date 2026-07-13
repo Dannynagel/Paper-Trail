@@ -13,18 +13,8 @@ function walkWebArmable(s) {
 
 async function startWalkthrough(recId) {
   if (walk) return;
-  if (typeof verifyRun !== "undefined" && verifyRun) {
-    alert("A Verify run is in progress — let it finish first.");
-    return;
-  }
-  if (typeof ap !== "undefined" && ap) {
-    alert("Autopilot is running — stop it first.");
-    return;
-  }
-  if (currentSession.recording) {
-    alert("Stop recording before starting a walkthrough.");
-    return;
-  }
+  const busy = exclusiveModeBusy();
+  if (busy) { alert(busy); return; }
   const rec = await PTDB.getRecording(recId);
   if (!rec || !rec.steps.length) return;
 

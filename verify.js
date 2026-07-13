@@ -19,18 +19,8 @@ function verifiableStep(s) {
 
 async function startVerify(recId) {
   if (verifyRun) return;
-  if (typeof walk !== "undefined" && walk) {
-    alert("A walkthrough is in progress — end it first.");
-    return;
-  }
-  if (typeof ap !== "undefined" && ap) {
-    alert("Autopilot is running — stop it first.");
-    return;
-  }
-  if (currentSession.recording) {
-    alert("Stop recording before running Verify.");
-    return;
-  }
+  const busy = exclusiveModeBusy();
+  if (busy) { alert(busy); return; }
   const rec = await PTDB.getRecording(recId);
   if (!rec) return;
 

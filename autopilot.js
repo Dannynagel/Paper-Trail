@@ -19,24 +19,10 @@ function apExecable(s) {
     ["click", "input", "select", "key"].includes(s.type));
 }
 
-function apParamNames(rec) {
-  return PTCommon.paramNames(rec);
-}
-
 async function startAutopilot(recId, presetValues, opts) {
   if (ap) return;
-  if (typeof walk !== "undefined" && walk) {
-    alert("A walkthrough is in progress — end it first.");
-    return;
-  }
-  if (typeof verifyRun !== "undefined" && verifyRun) {
-    alert("A Verify run is in progress — let it finish first.");
-    return;
-  }
-  if (currentSession.recording) {
-    alert("Stop recording before running Autopilot.");
-    return;
-  }
+  const busy = exclusiveModeBusy();
+  if (busy) { alert(busy); return; }
   const rec = await PTDB.getRecording(recId);
   if (!rec || !rec.steps.length) return;
   if (presetValues) {
@@ -51,18 +37,8 @@ async function startAutopilot(recId, presetValues, opts) {
 // normal completion (abort, closed tab) stops the whole batch.
 async function startAutopilotBatch(recId) {
   if (ap) return;
-  if (typeof walk !== "undefined" && walk) {
-    alert("A walkthrough is in progress — end it first.");
-    return;
-  }
-  if (typeof verifyRun !== "undefined" && verifyRun) {
-    alert("A Verify run is in progress — let it finish first.");
-    return;
-  }
-  if (currentSession.recording) {
-    alert("Stop recording before running Autopilot.");
-    return;
-  }
+  const busy = exclusiveModeBusy();
+  if (busy) { alert(busy); return; }
   const rec = await PTDB.getRecording(recId);
   if (!rec || !rec.steps.length || !rec.paramSets || !rec.paramSets.length) return;
   apRunBatch(rec, 0, null);
@@ -75,7 +51,7 @@ function apRunBatch(rec, index, tabId) {
 
 // ── Setup form: parameter values (panel-local only) + run mode ─────────────
 function renderApSetup(rec) {
-  const params = apParamNames(rec);
+  const params = PTCommon.paramNames(rec);
   const detail = $("libDetail");
   detail.hidden = false;
   detail.innerHTML = `
@@ -126,7 +102,7 @@ function renderApSetup(rec) {
 
 function apBegin(rec, values, stepConfirm, batch, tabId) {
   const params = {};
-  for (const p of apParamNames(rec)) params[p] = (values || {})[p] || "";
+  for (const p of PTCommon.paramNames(rec)) params[p] = (values || {})[p] || "";
   ap = {
     rec,
     steps: rec.steps,

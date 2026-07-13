@@ -27,25 +27,18 @@ async function persist() {
   }
 }
 
+// Settings are read on the hottest paths (every step, every captured HTTP
+// request), so they are cached in memory and invalidated by storage changes.
+let settingsCache = null;
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local") settingsCache = null;
+});
+
 async function getSettings() {
-  const d = await chrome.storage.local.get({
-    provider: "anthropic",
-    apiKey: "",
-    model: "",
-    customUrl: "",
-    includeScreenshots: false,
-    captureValues: false,
-    captionOnCapture: false,
-    maxSteps: 150,
-    transcribeUrl: "https://api.openai.com/v1/audio/transcriptions",
-    transcribeModel: "whisper-1",
-    transcribeKey: ""
-  });
-  if (!d.model) {
-    d.model = d.provider === "anthropic" ? "claude-sonnet-4-6"
-            : d.provider === "custom" ? "gemma4:12b-it-qat"   // Ollama-friendly local default
-            : "gpt-4o";
-  }
+  if (settingsCache) return settingsCache;
+  const d = await chrome.storage.local.get(PTCommon.SETTINGS_DEFAULTS);
+  if (!d.model) d.model = PTCommon.defaultModel(d.provider);
+  settingsCache = d;
   return d;
 }
 
@@ -149,17 +142,6 @@ async function attachShot(step, blob) {
   } catch (e) {
     return false;
   }
-}
-
-async function blobToDataUrl(blob) {
-  const buf = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let bin = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  return "data:image/jpeg;base64," + btoa(bin);
 }
 
 // ── Step recording ─────────────────────────────────────────────────────────
@@ -320,13 +302,12 @@ async function addUiaStep(m) {
 // tabId >= 0 excludes the extension's own LLM/transcription calls. Values are
 // masked under the same rules as typed values; secret-like keys always.
 const HTTP_CAP = 300;
-const HTTP_SECRETY = /pass|secret|token|key|ssn|card|auth|pwd|credential|session/i;
 const pendingHttp = new Map(); // requestId -> live entry (best-effort status fill-in)
 
 function httpMaskForm(formData, captureValues) {
   const out = {};
   for (const [k, vals] of Object.entries(formData || {})) {
-    out[k] = (captureValues && !HTTP_SECRETY.test(k))
+    out[k] = (captureValues && !PTCommon.looksSecret(k))
       ? String((vals && vals[0]) || "").slice(0, 120)
       : "[masked]";
   }
@@ -341,7 +322,7 @@ function httpMaskJson(value, captureValues, depth = 0) {
     for (const [k, v] of Object.entries(value).slice(0, 30)) {
       out[k] = (v && typeof v === "object")
         ? httpMaskJson(v, captureValues, depth + 1)
-        : ((captureValues && !HTTP_SECRETY.test(k)) ? String(v).slice(0, 120) : "[masked]");
+        : ((captureValues && !PTCommon.looksSecret(k)) ? String(v).slice(0, 120) : "[masked]");
     }
     return out;
   }
@@ -352,7 +333,7 @@ function httpScrubUrl(u) {
   try {
     const url = new URL(u);
     for (const k of [...url.searchParams.keys()]) {
-      if (HTTP_SECRETY.test(k)) url.searchParams.set(k, "masked");
+      if (PTCommon.looksSecret(k)) url.searchParams.set(k, "masked");
     }
     return url.href;
   } catch (e) { return u; }
@@ -381,15 +362,15 @@ chrome.webRequest.onBeforeRequest.addListener(async (d) => {
   await persist();
 }, { urls: ["http://*/*", "https://*/*"], types: ["main_frame", "sub_frame", "xmlhttprequest"] }, ["requestBody"]);
 
-chrome.webRequest.onCompleted.addListener(async (d) => {
+chrome.webRequest.onCompleted.addListener((d) => {
   const entry = pendingHttp.get(d.requestId);
   pendingHttp.delete(d.requestId);
   if (!entry) return;
+  // Stamp in memory only; the next mutation's persist() carries it. Re-serializing
+  // the whole session per response doubled the write load for a cosmetic field.
   entry.status = d.statusCode;
   const ct = (d.responseHeaders || []).find(h => h.name.toLowerCase() === "content-type");
   if (ct) entry.contentType = String(ct.value || "").split(";")[0];
-  await hydrate();
-  await persist();
 }, { urls: ["http://*/*", "https://*/*"], types: ["main_frame", "sub_frame", "xmlhttprequest"] }, ["responseHeaders"]);
 
 // Navigation steps via tabs.onUpdated (recording only, http(s) only)
@@ -804,7 +785,7 @@ async function shotDataFor(step) {
   if (step.shot) return step.shot.split(",")[1];
   if (step.hasShot) {
     const rec = await PTDB.getShot(step.id);
-    if (rec && rec.blob) return (await blobToDataUrl(rec.blob)).split(",")[1];
+    if (rec && rec.blob) return (await PTCommon.blobToDataUrl(rec.blob)).split(",")[1];
   }
   return null;
 }

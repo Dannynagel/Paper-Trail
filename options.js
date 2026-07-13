@@ -2,26 +2,22 @@
 
 const $ = (id) => document.getElementById(id);
 
-const DEFAULT_MODELS = { anthropic: "claude-sonnet-4-6", openai: "gpt-4o", custom: "gemma4:12b-it-qat" };
+// Defaults live once in PTCommon.SETTINGS_DEFAULTS / defaultModel — the same
+// table the service worker and side panel read.
+const PROVIDERS = ["anthropic", "openai", "custom"];
 
 function syncProviderUI() {
   $("customBlock").hidden = $("provider").value !== "custom";
-  if (!$("model").value || Object.values(DEFAULT_MODELS).includes($("model").value)) {
-    $("model").value = DEFAULT_MODELS[$("provider").value];
+  if (!$("model").value || PROVIDERS.some(p => PTCommon.defaultModel(p) === $("model").value)) {
+    $("model").value = PTCommon.defaultModel($("provider").value);
   }
 }
 
 async function load() {
-  const d = await chrome.storage.local.get({
-    provider: "anthropic", apiKey: "", model: "", customUrl: "",
-    includeScreenshots: false, captureValues: false, captionOnCapture: false, maxSteps: 150,
-    transcribeUrl: "https://api.openai.com/v1/audio/transcriptions",
-    transcribeModel: "whisper-1",
-    transcribeKey: ""
-  });
+  const d = await chrome.storage.local.get(PTCommon.SETTINGS_DEFAULTS);
   $("provider").value = d.provider;
   $("apiKey").value = d.apiKey;
-  $("model").value = d.model || DEFAULT_MODELS[d.provider];
+  $("model").value = d.model || PTCommon.defaultModel(d.provider);
   $("customUrl").value = d.customUrl;
   $("includeScreenshots").checked = d.includeScreenshots;
   $("captureValues").checked = d.captureValues;

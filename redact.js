@@ -56,10 +56,18 @@ async function openRedactor(stepId, onApplied) {
     ctx.fillStyle = "#000";
     ctx.fillRect(Math.min(r.x, r.x + r.w), Math.min(r.y, r.y + r.h), Math.abs(r.w), Math.abs(r.h));
   };
+  // Coalesce through rAF: pointermove fires far above refresh rate and each
+  // paint redraws the full bitmap.
+  let paintQueued = false;
   const repaint = () => {
-    ctx.drawImage(bmp, 0, 0);
-    for (const r of rects) paintRect(r);
-    if (drag) paintRect(drag);
+    if (paintQueued) return;
+    paintQueued = true;
+    requestAnimationFrame(() => {
+      paintQueued = false;
+      ctx.drawImage(bmp, 0, 0);
+      for (const r of rects) paintRect(r);
+      if (drag) paintRect(drag);
+    });
   };
   const toImage = (e) => {
     const b = canvas.getBoundingClientRect();
