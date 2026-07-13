@@ -50,9 +50,25 @@ async function getSettings() {
 }
 
 // ── Badge / broadcast ──────────────────────────────────────────────────────
-function setBadge(on) {
-  chrome.action.setBadgeText({ text: on ? "REC" : "" });
-  if (on) chrome.action.setBadgeBackgroundColor({ color: "#FF4757" });
+// Single badge writer, derived from durable state: REC (recording) outranks
+// the sentinel's "!" alert, and the alert flag lives in chrome.storage.local
+// so it survives worker eviction and browser restarts until the Library is
+// opened — no code path can silently wipe a pending alert.
+async function refreshBadge() {
+  await hydrate();
+  if (session.recording) {
+    chrome.action.setBadgeText({ text: "REC" });
+    chrome.action.setBadgeBackgroundColor({ color: "#FF4757" });
+    return;
+  }
+  const { sentinelAlert } = await chrome.storage.local.get({ sentinelAlert: false });
+  chrome.action.setBadgeText({ text: sentinelAlert ? "!" : "" });
+  if (sentinelAlert) chrome.action.setBadgeBackgroundColor({ color: "#E8B84B" });
+}
+
+async function setSentinelAlert(on) {
+  await chrome.storage.local.set({ sentinelAlert: !!on });
+  await refreshBadge();
 }
 
 async function broadcastState() {
@@ -70,7 +86,7 @@ async function broadcastState() {
 let lastShotAt = 0;
 const MIN_SHOT_GAP = 620; // Chrome rate-limits captureVisibleTab (~2/sec)
 
-async function captureShot(coords) {
+async function captureShot(coords, windowId) {
   const now = Date.now();
   const wait = Math.max(0, lastShotAt + MIN_SHOT_GAP - now);
   if (wait) await new Promise(r => setTimeout(r, wait));
@@ -78,7 +94,7 @@ async function captureShot(coords) {
 
   let dataUrl;
   try {
-    dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: "jpeg", quality: 85 });
+    dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 85 });
   } catch (e) {
     return null; // chrome:// pages, devtools, race on tab close
   }
@@ -451,7 +467,7 @@ async function startRecording() {
   session = { recording: true, steps: [], http: [], startedAt: Date.now() };
   await PTDB.deleteShotsByRec(PTDB.LIVE_REC_ID).catch(() => {});
   await persist();
-  setBadge(true);
+  await refreshBadge();
   await broadcastState();
 }
 
@@ -459,7 +475,7 @@ async function stopRecording() {
   await hydrate();
   session.recording = false;
   await persist();
-  setBadge(false);
+  await refreshBadge();
   await broadcastState();
 }
 
@@ -479,13 +495,6 @@ async function ensureSentinelAlarm() {
   }
 }
 
-// The "!" badge must never clobber the REC badge.
-function setSentinelBadge(on) {
-  if (session.recording) return;
-  chrome.action.setBadgeText({ text: on ? "!" : "" });
-  if (on) chrome.action.setBadgeBackgroundColor({ color: "#E8B84B" });
-}
-
 function sentinelAlert(title, counts, summary) {
   const n = counts.fallback + counts.missing + counts.unreachable;
   try {
@@ -496,7 +505,7 @@ function sentinelAlert(title, counts, summary) {
       message: `SOP "${title}" drifted: ${n} anchor problem(s). ${summary}`
     });
   } catch (e) { /* notification is best-effort */ }
-  setSentinelBadge(true);
+  setSentinelAlert(true).catch(() => {});
 }
 
 function sentinelWaitLoad(tabId, ms) {
@@ -652,7 +661,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "clear":
         session = { recording: false, steps: [], http: [], startedAt: 0 };
         await PTDB.deleteShotsByRec(PTDB.LIVE_REC_ID).catch(() => {});
-        await persist(); setBadge(false); await broadcastState();
+        await persist(); await refreshBadge(); await broadcastState();
         sendResponse({ ok: true });
         break;
       case "deleteStep": {
@@ -720,9 +729,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       case "evidenceShot": {
-        // One evidence screenshot for a run step. Stored locally under the
-        // run's synthetic recId; reuses the rate-gated capture pipeline.
-        const blob = await captureShot(null);
+        // One evidence screenshot for a run step, captured from the RUN TAB's
+        // window — and only while the run tab is the visible one. A step
+        // completed while the user looks elsewhere records without a shot
+        // rather than storing an unrelated page as "proof".
+        const tab = msg.tabId ? await chrome.tabs.get(msg.tabId).catch(() => null) : null;
+        if (!tab || !tab.active) { sendResponse({ ok: false }); break; }
+        const blob = await captureShot(null, tab.windowId);
         if (blob && msg.runId) {
           const key = msg.runId + ":" + msg.n;
           try {
@@ -740,14 +753,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       case "sentinelRunNow": {
         // Deterministic trigger for tests and a manual "check now".
+        // Same guards as the alarm path: never open probe tabs while
+        // recording (their HTTP would pollute session.http), never overlap
+        // two sentinel runs.
+        if (session.recording) { sendResponse({ ok: false, error: "Recording in progress." }); break; }
+        if (sentinelBusy) { sendResponse({ ok: false, error: "A sentinel run is already in progress." }); break; }
         const rec = await PTDB.getRecording(msg.recId);
         if (!rec) { sendResponse({ ok: false, error: "Recording not found." }); break; }
-        const summary = await sentinelVerify(rec);
-        sendResponse({ ok: true, summary });
+        sentinelBusy = true;
+        try {
+          const summary = await sentinelVerify(rec);
+          sendResponse({ ok: true, summary });
+        } finally {
+          sentinelBusy = false;
+        }
         break;
       }
       case "libraryOpened":
-        setSentinelBadge(false);
+        await setSentinelAlert(false);
         sendResponse({ ok: true });
         break;
       case "nativeConnect":
@@ -1340,6 +1363,6 @@ async function buildAudit(target, userContext, recordingId, recordingIdB, extras
 
 // Keep badge accurate across worker restarts; re-assert the sentinel alarm
 // (idempotent) so watches survive browser and extension restarts.
-chrome.runtime.onStartup?.addListener(async () => { await hydrate(); setBadge(session.recording); });
-hydrate().then(() => setBadge(session.recording));
+chrome.runtime.onStartup?.addListener(() => { refreshBadge().catch(() => {}); });
+refreshBadge().catch(() => {});
 ensureSentinelAlarm().catch(() => {});

@@ -485,7 +485,16 @@ async function importPack(pack) {
     throw new Error("not a valid .ptpack file");
   }
   const rec = pack.rec;
-  rec.id = crypto.randomUUID(); // fresh identity here; step UUIDs are kept
+  rec.id = crypto.randomUUID();
+  // Remint step ids too: the shots store is keyed globally by stepId, so a
+  // pack re-imported into the profile it came from would otherwise overwrite
+  // (and steal) the original recording's screenshots at the shared ids.
+  const idMap = new Map();
+  for (const step of rec.steps) {
+    const fresh = crypto.randomUUID();
+    idMap.set(step.id, fresh);
+    step.id = fresh;
+  }
   delete rec.watch;
   delete rec.paramSets;
   delete rec.variantOf;
@@ -493,8 +502,10 @@ async function importPack(pack) {
   rec.updatedAt = Date.now();
   for (const s of pack.shots || []) {
     if (!s || !s.stepId || typeof s.b64 !== "string" || !/^data:image\//.test(s.b64)) continue;
+    const stepId = idMap.get(s.stepId);
+    if (!stepId) continue; // shot without a matching step — drop it
     const blob = await (await fetch(s.b64)).blob();
-    await PTDB.putShot({ stepId: s.stepId, recId: rec.id, blob });
+    await PTDB.putShot({ stepId, recId: rec.id, blob });
   }
   await PTDB.saveRecording(rec);
   return rec.id;

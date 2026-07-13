@@ -463,6 +463,17 @@ const server = http.createServer((req, res) => {
     check("unchanged drift does not re-notify",
       sen2.ok && afterSen2.watch.lastNotified === afterSen.watch.lastNotified);
 
+    // 1.5.1 fix: the "!" badge derives from a durable flag — REC replaces it
+    // during a recording and it comes back after, instead of being wiped.
+    await send({ cmd: "start" });
+    await waitFor(async () =>
+      (await panel.evaluate(() => chrome.action.getBadgeText({}))) === "REC", { desc: "REC badge" });
+    await send({ cmd: "stop" });
+    await waitFor(async () =>
+      (await panel.evaluate(() => chrome.action.getBadgeText({}))) === "!",
+      { desc: "badge restored after recording" });
+    check("sentinel badge survives a record/stop cycle", true);
+
     await panel.evaluate(() => renderLibrary());
     await waitFor(async () =>
       (await panel.evaluate(() => chrome.action.getBadgeText({}))) === "", { desc: "badge cleared" });
@@ -565,23 +576,28 @@ const server = http.createServer((req, res) => {
     check("pack excludes local state (watch, paramSets, runs)",
       pack.rec.watch === undefined && pack.rec.paramSets === undefined &&
       !("runs" in pack) && JSON.stringify(pack).indexOf('"batchRow"') === -1);
-    await panel.evaluate((id) => PTDB.deleteRecording(id), recId);
-    check("recording deleted before import",
-      !(await panel.evaluate(() => PTDB.listRecordings())).some(r => r.title === "Smoke Rec"));
+    // Import WHILE the original still exists: step ids must be reminted so
+    // the original's screenshots are not stolen (the shots store is keyed
+    // globally by stepId — regression test for the 1.5.1 fix).
     const importedId = await panel.evaluate((p) => importPack(p), pack);
     const importedRec = await panel.evaluate((id) => PTDB.getRecording(id), importedId);
-    check("import restores the recording under a fresh id, step UUIDs kept",
+    check("import restores the recording under fresh recording AND step ids",
       importedRec.id !== recId && importedRec.title === "Smoke Rec" &&
       importedRec.steps.length === pack.rec.steps.length &&
-      importedRec.steps.some(s => s.id === shotSig.stepId));
-    const restoredShot = await panel.evaluate((sid) => PTDB.getShot(sid).then(s =>
+      !importedRec.steps.some(s => s.id === shotSig.stepId));
+    const origShot = await panel.evaluate((sid) => PTDB.getShot(sid).then(s =>
       s && { size: s.blob.size, recId: s.recId }), shotSig.stepId);
-    check("screenshot bytes restored under the new recording",
-      !!restoredShot && restoredShot.size === shotSig.size && restoredShot.recId === importedId,
-      restoredShot);
+    check("original recording keeps its screenshot after import",
+      !!origShot && origShot.recId === recId && origShot.size === shotSig.size, origShot);
+    const importedClickId = importedRec.steps.find(s => s.type === "click").id;
+    const importedShot = await panel.evaluate((sid) => PTDB.getShot(sid).then(s =>
+      s && { size: s.blob.size, recId: s.recId }), importedClickId);
+    check("screenshot bytes restored under the imported copy's reminted id",
+      !!importedShot && importedShot.size === shotSig.size && importedShot.recId === importedId,
+      importedShot);
     check("garbage import rejected",
       await panel.evaluate(() => importPack({ format: "nope" }).then(() => false, () => true)));
-    recId = importedId; // later sections keep using the (re-imported) recording
+    await panel.evaluate((id) => PTDB.deleteRecording(id), importedId); // keep the original for later sections
 
     // ── Feature 7: Redaction brush ──────────────────────────────────────────
     section("Redaction brush");
@@ -696,6 +712,60 @@ const server = http.createServer((req, res) => {
       mtRuns.length === 1 && mtRuns[0].steps.every(s => s.status === "done"),
       mtRuns[0] && mtRuns[0].steps.map(s => `${s.n}:${s.status}`));
     await panel.evaluate((id) => PTDB.deleteRecording(id), mtRecId);
+    for (const p of ctx.pages()) if (p !== panel) await p.close().catch(() => {});
+
+    // ── 1.5.1 review fixes ──────────────────────────────────────────────────
+    section("Evidence capture refuses a non-visible run tab");
+    const bgTab = await ctx.newPage();
+    await bgTab.goto(`${BASE}/form.html`);
+    const fgTab = await ctx.newPage();
+    await fgTab.goto(`${BASE}/page2.html`); // now the active tab
+    const refusal = await panel.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const hidden = tabs.find(t => t.url && t.url.endsWith("/form.html") && !t.active);
+      return await new Promise(r => chrome.runtime.sendMessage(
+        { cmd: "evidenceShot", runId: "smoke-refusal", n: 1, tabId: hidden && hidden.id }, r));
+    });
+    check("evidenceShot refuses when the run tab is not visible",
+      !!refusal && refusal.ok === false, refusal);
+    check("no wrong-tab evidence stored",
+      (await panel.evaluate(() => PTDB.getShotsByRec("run:smoke-refusal"))).length === 0);
+    for (const p of ctx.pages()) if (p !== panel) await p.close().catch(() => {});
+
+    section("Walkthrough evidence (🧾) — ordered entries, no double-advance");
+    await panel.evaluate((id) => startWalkthrough(id), recId);
+    await waitFor(() => panel.evaluate(() => typeof walk !== "undefined" && !!walk),
+      { desc: "walk started" });
+    await panel.evaluate(() => { walk.evidence = true; });
+    const wPage = await waitFor(async () => {
+      for (const p of ctx.pages()) if (p !== panel && p.url().includes("form.html")) return p;
+      return null;
+    }, { desc: "walk tab" });
+    await waitFor(() => wPage.locator(".paper-trail-guide-box").count(),
+      { timeout: 30000, desc: "walk armed" });
+    const wIdx = await panel.evaluate(() => walk.idx);
+    await wPage.click("#addItem");
+    await waitFor(() => panel.evaluate((i) => walk && walk.idx > i, wIdx), { desc: "walk advance" });
+    await panel.evaluate(() => endWalkthrough());
+    await waitFor(() => panel.evaluate(() => walk === null), { desc: "walk ended" });
+    const wRuns = await panel.evaluate((id) => PTDB.listRunsByRec(id), recId);
+    const wRun = wRuns.find(r => r.mode === "walkthrough");
+    check("walkthrough evidence run saved with completed entries",
+      !!wRun && wRun.steps.length >= 1 && wRun.steps.every(x => x.status === "done"),
+      wRun && wRun.steps);
+    check("no duplicated step entries (re-entrancy regression)",
+      !!wRun && new Set(wRun.steps.map(x => x.n)).size === wRun.steps.length);
+    for (const p of ctx.pages()) if (p !== panel) await p.close().catch(() => {});
+
+    section("sentinelRunNow guards");
+    await send({ cmd: "start" });
+    const senBlocked = await send({ cmd: "sentinelRunNow", recId });
+    check("sentinelRunNow refused while recording",
+      !!senBlocked && senBlocked.ok === false && /recording/i.test(senBlocked.error || ""), senBlocked);
+    await send({ cmd: "stop" });
+    const senAfter = await send({ cmd: "sentinelRunNow", recId });
+    check("sentinelRunNow works again after recording stops",
+      !!senAfter && senAfter.ok === true, senAfter);
     for (const p of ctx.pages()) if (p !== panel) await p.close().catch(() => {});
 
     // FEATURE SECTIONS APPENDED BELOW AS THEY ARE IMPLEMENTED

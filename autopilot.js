@@ -270,7 +270,7 @@ async function apRecordStep(step, status) {
   if (!ap || !ap.run) return;
   const entry = { n: step.n, text: step.text, status, ts: Date.now() };
   if (status === "done" || status === "confirmed" || status === "manual") {
-    const r = await send({ cmd: "evidenceShot", runId: ap.run.id, n: step.n });
+    const r = await send({ cmd: "evidenceShot", runId: ap.run.id, n: step.n, tabId: ap.tabId });
     entry.hasShot = !!(r && r.ok);
   }
   if (ap && ap.run) ap.run.steps.push(entry);
@@ -377,9 +377,20 @@ async function apEnsureAt(url) {
     const done = apWaitLoad(AP_NAV_TIMEOUT);
     const tab = await chrome.tabs.create({ url, active: true });
     ap.tabId = tab.id;
+    // An instant load can fire 'complete' before ap.tabId was assigned, which
+    // the waiter (reading ap.tabId at event time) would miss — check the tab
+    // directly, and after a timeout re-check instead of grading a loaded page
+    // as a nav failure. (The dangling waiter self-removes at its timeout.)
+    const early = await chrome.tabs.get(tab.id).catch(() => null);
+    if (early && early.status === "complete" && PTCommon.samePage(early.url, url)) {
+      await apSleep(AP_NAV_SETTLE);
+      return true;
+    }
     const ok = await done;
     await apSleep(AP_NAV_SETTLE);
-    return ok;
+    if (ok) return true;
+    const late = await chrome.tabs.get(tab.id).catch(() => null);
+    return !!late && late.status === "complete" && PTCommon.samePage(late.url, url);
   }
   let tab = await chrome.tabs.get(ap.tabId).catch(() => null);
   if (!tab) return false;

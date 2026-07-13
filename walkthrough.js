@@ -40,6 +40,7 @@ async function startWalkthrough(recId) {
     shotUrls,
     pingTimer: setInterval(walkPingFrames, 8000),
     evidence: false, // 🧾 toggle: when on, completed steps are screenshotted into a local run record
+    evidencePending: [], // in-flight capture promises, settled before saveRun
     run: {
       id: crypto.randomUUID(),
       recId: rec.id,
@@ -63,8 +64,10 @@ async function endWalkthrough(message) {
   chrome.tabs.onRemoved.removeListener(walkOnTabRemoved);
   if (walk.tabId) await walkSendFrames({ cmd: "walkDisarm" });
   if (walk.run && walk.run.steps.length) {
-    walk.run.finishedAt = Date.now();
-    await PTDB.saveRun(walk.run).catch(() => {});
+    const run = walk.run; // walk may be torn down while captures settle
+    await Promise.allSettled(walk.evidencePending);
+    run.finishedAt = Date.now();
+    await PTDB.saveRun(run).catch(() => {});
   }
   for (const u of walk.shotUrls.values()) URL.revokeObjectURL(u);
   walk = null;
@@ -146,25 +149,33 @@ async function walkArmCurrent() {
   renderWalkPanel("stale");
 }
 
-async function walkMarkDone(via) {
+// Synchronous through idx++ on purpose: an await before the advance opens a
+// re-entrancy window in which duplicate onUpdated/walkStepDone events re-mark
+// the same index and silently skip the next step. The evidence capture runs
+// after the advance, fire-and-forget but tracked (endWalkthrough settles it).
+function walkMarkDone(via) {
   if (!walk) return;
+  const step = walk.steps[walk.idx];
   walk.states[walk.idx] = "done";
-  await walkRecordStep(walk.steps[walk.idx], via === "manual" ? "manual" : "done");
-  if (!walk) return;
   walk.idx++;
+  walkRecordStep(step, via === "manual" ? "manual" : "done");
   walkShowStep();
 }
 
 // Evidence (🧾 toggle): screenshot the walkthrough tab after each completed
 // step into a local run record. Off by default; nothing leaves the machine.
-async function walkRecordStep(step, status) {
+// The run entry is pushed synchronously (order preserved); hasShot is filled
+// in when the capture lands.
+function walkRecordStep(step, status) {
   if (!walk || !walk.evidence || !step) return;
   const entry = { n: step.n, text: step.text, status, ts: Date.now() };
-  if (status !== "skipped") {
-    const r = await send({ cmd: "evidenceShot", runId: walk.run.id, n: step.n });
-    entry.hasShot = !!(r && r.ok);
-  }
-  if (walk) walk.run.steps.push(entry);
+  walk.run.steps.push(entry);
+  if (status === "skipped") return;
+  walk.evidencePending.push(
+    send({ cmd: "evidenceShot", runId: walk.run.id, n: step.n, tabId: walk.tabId })
+      .then((r) => { entry.hasShot = !!(r && r.ok); })
+      .catch(() => {})
+  );
 }
 
 // ── Tab / frame plumbing ────────────────────────────────────────────────────
@@ -304,9 +315,9 @@ function renderWalkPanel(state, via) {
   $("walkSkip").addEventListener("click", async () => {
     if (!walk) return;
     await walkSendFrames({ cmd: "walkDisarm" });
-    walk.states[walk.idx] = "skipped";
-    await walkRecordStep(walk.steps[walk.idx], "skipped");
     if (!walk) return;
+    walk.states[walk.idx] = "skipped";
+    walkRecordStep(walk.steps[walk.idx], "skipped");
     walk.idx++;
     walkShowStep();
   });
