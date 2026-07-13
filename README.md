@@ -41,7 +41,7 @@ Clicks & fields (DOM / UIA)  ──►  Semantic step ledger  ──►  LLM  �
 2. Side panel → **⚙** → pick a provider (or point Custom at local Ollama), paste a key if needed
 3. **● Start recording**, do the thing, **■ Stop**, **Generate** — then **💾 Save** to keep it in the Library
 
-Full guides: **[Install](docs/INSTALL.md)** · **[Usage](docs/USAGE.md)** · **[Design](docs/DESIGN.md)** · **[Testing](docs/TESTING.md)**
+Full guides: **[Install](docs/INSTALL.md)** · **[Usage](docs/USAGE.md)** · **[Design](docs/DESIGN.md)** · **[Testing](docs/TESTING.md)** · **[v1.5 Roadmap](docs/ROADMAP-v1.5.md)**
 
 ## Repository layout
 
