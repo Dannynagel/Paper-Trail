@@ -178,6 +178,18 @@ const PTCommon = (() => {
     return { maskedSteps, shotSteps: shots, narratedSteps, captionedSteps, paramSteps, stepCount: steps.length };
   }
 
+  // Distinct run-time parameter names of a recording. Params on masked steps
+  // are excluded everywhere they're consumed (autopilot form, CSV runs table):
+  // the human types those values on every run, so no machinery collects them.
+  function paramNames(rec) {
+    return [...new Set(((rec && rec.steps) || []).filter(s => !s.masked).map(s => s.param).filter(Boolean))];
+  }
+
+  // Sanitize a string into a safe download-filename stem.
+  function fileStem(s, cap = 60, fallback = "") {
+    return String(s || "").replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, cap) || fallback;
+  }
+
   // RFC-4180-ish CSV parser for the runs table: quoted fields, "" escapes,
   // CR/LF/CRLF line ends. Header row is trimmed; data rows are kept verbatim
   // (including ragged lengths — the caller validates against its params).
@@ -224,6 +236,58 @@ const PTCommon = (() => {
     return parts.length ? parts.join(", ") : "no steps";
   }
 
+  // ── Tab plumbing shared by Verify (panel), Autopilot (panel), and the
+  // drift sentinel (worker). These touch chrome.* only when CALLED, so this
+  // file still loads cleanly in tests.html and the content script. ─────────
+
+  // Resolve true when a tab matching `match(tabId)` reports status "complete",
+  // false on timeout or when `giveUp()` turns true (checked per event).
+  function waitTabLoad(ms, match, giveUp) {
+    return new Promise((res) => {
+      let settled = false;
+      const finish = (ok) => {
+        if (settled) return;
+        settled = true;
+        chrome.tabs.onUpdated.removeListener(onUpd);
+        res(ok);
+      };
+      const onUpd = (id, info) => {
+        if (giveUp && giveUp()) return finish(false);
+        if (match(id) && info.status === "complete") finish(true);
+      };
+      chrome.tabs.onUpdated.addListener(onUpd);
+      setTimeout(() => finish(false), ms);
+    });
+  }
+
+  // Probe every frame of a tab for a step's anchors; best grade wins
+  // (found > unique fallback > ambiguous fallback > missing).
+  async function probeFrames(tabId, step) {
+    let frames = [];
+    try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch (e) {}
+    if (!frames || !frames.length) frames = [{ frameId: 0 }];
+
+    const rank = { found: 3, fallback: 2, missing: 1 };
+    let best = { status: "missing", matchedSelector: "", matchCount: 0 };
+    for (const f of frames) {
+      const r = await new Promise((res) => {
+        chrome.tabs.sendMessage(tabId, {
+          cmd: "probeStep",
+          step: { selector: step.selector, anchors: step.anchors, label: step.label, kind: step.kind, type: step.type }
+        }, { frameId: f.frameId }, (resp) => {
+          void chrome.runtime.lastError; // frame without our script — not an error
+          res(resp || null);
+        });
+      });
+      if (!r) continue;
+      const better = rank[r.status] > rank[best.status] ||
+        (r.status === "fallback" && best.status === "fallback" && r.matchedSelector && !best.matchedSelector);
+      if (better) best = r;
+      if (best.status === "found") break;
+    }
+    return best;
+  }
+
   // Blob → data URL (panel/content contexts; the service worker has its own).
   function blobToDataUrl(blob) {
     return new Promise((res, rej) => {
@@ -237,6 +301,7 @@ const PTCommon = (() => {
   return {
     normLabel, labelMatches, anchorList, samePage, sameOrigin, urlHost,
     summarizeVerify, diffSteps, summarizeDiff, mapNarration, auditStats,
-    summarizeRun, parseCsv, blobToDataUrl
+    summarizeRun, parseCsv, paramNames, fileStem,
+    waitTabLoad, probeFrames, blobToDataUrl
   };
 })();

@@ -20,9 +20,7 @@ function apExecable(s) {
 }
 
 function apParamNames(rec) {
-  // Params on masked steps are excluded: the human types those values under
-  // the gate, so the panel never collects (or stores) them.
-  return [...new Set(rec.steps.filter(s => !s.masked).map(s => s.param).filter(Boolean))];
+  return PTCommon.paramNames(rec);
 }
 
 async function startAutopilot(recId, presetValues, opts) {
@@ -329,22 +327,9 @@ function apSleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Tab / frame plumbing (mirrors walkthrough.js, own tab state) ───────────
 function apWaitLoad(ms, tabId) {
-  return new Promise((res) => {
-    let settled = false;
-    const finish = (ok) => {
-      if (settled) return;
-      settled = true;
-      chrome.tabs.onUpdated.removeListener(onUpd);
-      res(ok);
-    };
-    const onUpd = (id, info) => {
-      if (!ap) return finish(false);
-      const want = tabId !== undefined ? tabId : ap.tabId;
-      if (id === want && info.status === "complete") finish(true);
-    };
-    chrome.tabs.onUpdated.addListener(onUpd);
-    setTimeout(() => finish(false), ms);
-  });
+  return PTCommon.waitTabLoad(ms,
+    (id) => id === (tabId !== undefined ? tabId : (ap && ap.tabId)),
+    () => !ap);
 }
 
 // A recorded click may have opened a new tab (target=_blank, window.open) —

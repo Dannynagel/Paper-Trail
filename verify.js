@@ -65,7 +65,7 @@ async function startVerify(recId) {
         continue;
       }
 
-      const probe = await verifyProbeFrames(verifyRun.tabId, s);
+      const probe = await PTCommon.probeFrames(verifyRun.tabId, s);
       r.grade = probe.status;
       r.suggestion = probe.status === "fallback" ? probe.matchedSelector : "";
       r.freshAnchors = probe.status === "fallback" ? probe.freshAnchors : undefined;
@@ -94,7 +94,7 @@ async function startVerify(recId) {
 // (origin+path), tolerating SPA query/hash drift.
 async function verifyEnsureTabAt(url) {
   if (!verifyRun.tabId) {
-    const done = verifyWaitForLoadOnce(VERIFY_NAV_TIMEOUT, (id) => id === verifyRun.tabId);
+    const done = PTCommon.waitTabLoad(VERIFY_NAV_TIMEOUT, (id) => id === verifyRun.tabId);
     const tab = await chrome.tabs.create({ url, active: true });
     verifyRun.tabId = tab.id;
     return verifyFinishNav(await done, url);
@@ -102,26 +102,9 @@ async function verifyEnsureTabAt(url) {
   const tab = await chrome.tabs.get(verifyRun.tabId).catch(() => null);
   if (!tab) return { reached: false, finalUrl: "" };
   if (PTCommon.samePage(tab.url, url)) return { reached: true, finalUrl: tab.url };
-  const done = verifyWaitForLoadOnce(VERIFY_NAV_TIMEOUT, (id) => id === verifyRun.tabId);
+  const done = PTCommon.waitTabLoad(VERIFY_NAV_TIMEOUT, (id) => id === verifyRun.tabId);
   await chrome.tabs.update(verifyRun.tabId, { url });
   return verifyFinishNav(await done, url);
-}
-
-function verifyWaitForLoadOnce(ms, matchTab) {
-  return new Promise((res) => {
-    let settled = false;
-    const finish = (ok) => {
-      if (settled) return;
-      settled = true;
-      chrome.tabs.onUpdated.removeListener(onUpd);
-      res(ok);
-    };
-    const onUpd = (id, info) => {
-      if (info.status === "complete" && matchTab(id)) finish(true);
-    };
-    chrome.tabs.onUpdated.addListener(onUpd);
-    setTimeout(() => finish(false), ms);
-  });
 }
 
 async function verifyFinishNav(loaded, wanted) {
@@ -132,32 +115,7 @@ async function verifyFinishNav(loaded, wanted) {
   return { reached: PTCommon.sameOrigin(tab.url, wanted), finalUrl: tab.url || "" };
 }
 
-// Probe every frame; best grade wins (found > unique fallback > ambiguous > missing).
-async function verifyProbeFrames(tabId, step) {
-  let frames = [];
-  try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch (e) {}
-  if (!frames || !frames.length) frames = [{ frameId: 0 }];
-
-  const rank = { found: 3, fallback: 2, missing: 1 };
-  let best = { status: "missing", matchedSelector: "", matchCount: 0 };
-  for (const f of frames) {
-    const r = await new Promise((res) => {
-      chrome.tabs.sendMessage(tabId, {
-        cmd: "probeStep",
-        step: { selector: step.selector, anchors: step.anchors, label: step.label, kind: step.kind, type: step.type }
-      }, { frameId: f.frameId }, (resp) => {
-        void chrome.runtime.lastError; // frame without our script — not an error
-        res(resp || null);
-      });
-    });
-    if (!r) continue;
-    const better = rank[r.status] > rank[best.status] ||
-      (r.status === "fallback" && best.status === "fallback" && r.matchedSelector && !best.matchedSelector);
-    if (better) best = r;
-    if (best.status === "found") break;
-  }
-  return best;
-}
+// Frame probing lives in PTCommon.probeFrames (shared with the drift sentinel).
 
 // ── Report rendering (in the Library tab's detail area) ────────────────────
 const VERIFY_GRADE_LABEL = {

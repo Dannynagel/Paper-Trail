@@ -47,8 +47,7 @@ async function startWalkthrough(recId) {
       recTitle: rec.title,
       startedAt: Date.now(),
       finishedAt: 0,
-      mode: "walkthrough",
-      params: {},
+      mode: "walkthrough", // no params field: walkthroughs have no run-time parameters
       steps: []
     }
   };

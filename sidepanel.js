@@ -793,7 +793,7 @@ function download(name, content, mime) {
 function sopTitle() {
   const m = currentMarkdown.match(/^#\s+(.+)$/m);
   const fallback = (SCRIPT_TARGETS[currentTarget] || {}).title || "SOP";
-  return (m ? m[1] : fallback).replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, 60) || fallback;
+  return PTCommon.fileStem(m ? m[1] : fallback, 60, fallback);
 }
 
 $("btnDlMd").addEventListener("click", () =>

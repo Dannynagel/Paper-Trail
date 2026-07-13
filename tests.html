@@ -206,6 +206,19 @@ eq("parseCsv skips blank lines",
   { headers: ["A"], rows: [["1"]] });
 eq("parseCsv empty input", PTCommon.parseCsv(""), { headers: [], rows: [] });
 
+// ── paramNames / fileStem (shared helpers) ───────────────────────────────
+eq("paramNames dedupes and skips masked steps",
+  PTCommon.paramNames({ steps: [
+    { param: "EMPLOYEE_ID" }, { param: "EMPLOYEE_ID" },
+    { param: "SECRET", masked: true }, { param: "" }, {}
+  ] }),
+  ["EMPLOYEE_ID"]);
+eq("paramNames tolerates empty/missing", PTCommon.paramNames({ steps: [] }).concat(PTCommon.paramNames(null)), []);
+eq("fileStem sanitizes and underscores",
+  PTCommon.fileStem("JML: on-board / Contractor!"), "JML_on-board_Contractor");
+eq("fileStem caps length", PTCommon.fileStem("abcdef", 3), "abc");
+eq("fileStem falls back when nothing survives", PTCommon.fileStem("///", 60, "run"), "run");
+
 const h = document.createElement("h1");
 h.className = failed ? "fail" : "pass";
 h.textContent = `${passed} passed, ${failed} failed`;

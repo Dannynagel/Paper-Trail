@@ -47,7 +47,7 @@
         frameUrl: location.href
       });
     } else if (msg.cmd === "walkArm") {
-      sendResponse(walkArm(msg.step || {}, msg.tip));
+      sendResponse(walkArm(msg.step || {}));
     } else if (msg.cmd === "walkDisarm") {
       walkCleanup();
       sendResponse({ ok: true });
@@ -289,11 +289,11 @@
     }, 1000);
   }
 
-  function walkArm(step, tip) {
+  function walkArm(step) {
     walkCleanup();
     const r = resolveStep(step);
     if (!r.el) return { armed: false, status: r.status, matchCount: r.matchCount };
-    armOverlay(step, r.el, tip || stepTip(step), "walkthrough");
+    armOverlay(step, r.el, stepTip(step), "walkthrough");
     return { armed: true, via: r.status === "found" ? "selector" : "label" };
   }
 

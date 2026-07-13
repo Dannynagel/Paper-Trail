@@ -86,8 +86,7 @@ function renderDiffReport() {
 }
 
 function diffFileStem() {
-  return `${lastDiff.recA.title}_${lastDiff.recB.title}`
-    .replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, 60) || "recordings";
+  return PTCommon.fileStem(`${lastDiff.recA.title}_${lastDiff.recB.title}`, 60, "recordings");
 }
 
 function diffMarkdown() {

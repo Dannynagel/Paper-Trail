@@ -90,8 +90,8 @@ async function openRecording(id) {
   const rec = await PTDB.getRecording(id);
   if (!rec) return;
   libRevokeUrls();
-  const runs = await PTDB.listRunsByRec(id);
-  const shots = await PTDB.getShotsByRec(id);
+  const [runs, shots] = await Promise.all([PTDB.listRunsByRec(id), PTDB.getShotsByRec(id)]);
+  const paramNames = PTCommon.paramNames(rec);
   const srcByStep = new Map(shots.map(s => {
     const u = URL.createObjectURL(s.blob);
     libObjUrls.push(u);
@@ -128,7 +128,7 @@ async function openRecording(id) {
           </div>
         </div>`).join("")}
     </section>
-    ${csvParamNames(rec).length ? csvSectionHtml(rec) : ""}
+    ${paramNames.length ? csvSectionHtml(rec, paramNames) : ""}
     ${runs.length ? `
       <div class="result-bar"><span>Runs (${runs.length}) — evidence stays local</span></div>
       <section class="steps lib-steps">
@@ -146,7 +146,7 @@ async function openRecording(id) {
     btn.addEventListener("click", () => openRun(btn.dataset.runid)));
   detail.querySelectorAll("button[data-libact='redact']").forEach(btn =>
     btn.addEventListener("click", () => openRedactor(btn.dataset.id, () => openRecording(rec.id))));
-  if (csvParamNames(rec).length) wireCsvSection(rec);
+  if (paramNames.length) wireCsvSection(rec, paramNames);
   detail.querySelectorAll("button[data-libact='param']").forEach(btn =>
     btn.addEventListener("click", async () => {
       const fresh = await PTDB.getRecording(rec.id);
@@ -169,14 +169,9 @@ async function openRecording(id) {
 }
 
 // ── Runs table (CSV → rec.paramSets) — values stay local, never sent ───────
-// Columns are the recording's run-time parameter names (masked-step params
-// excluded: those values are typed by a human on every run).
-function csvParamNames(rec) {
-  return [...new Set(rec.steps.filter(s => !s.masked).map(s => s.param).filter(Boolean))];
-}
-
-function csvSectionHtml(rec) {
-  const names = csvParamNames(rec);
+// Columns are the recording's run-time parameter names (PTCommon.paramNames:
+// masked-step params excluded — those values are typed by a human every run).
+function csvSectionHtml(rec, names) {
   const saved = (rec.paramSets || []).length;
   const canBatch = typeof startAutopilotBatch === "function" && saved;
   return `
@@ -196,8 +191,7 @@ function csvSectionHtml(rec) {
     </div>`;
 }
 
-function wireCsvSection(rec) {
-  const names = csvParamNames(rec);
+function wireCsvSection(rec, names) {
   const status = (msg, err) => {
     const el = $("csvStatus");
     el.hidden = false;
@@ -206,7 +200,7 @@ function wireCsvSection(rec) {
   };
 
   $("csvTemplate").addEventListener("click", () =>
-    download(`${rec.title.replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40) || "recording"}_runs.csv`,
+    download(`${PTCommon.fileStem(rec.title, 40, "recording")}_runs.csv`,
       names.join(",") + "\r\n", "text/csv"));
 
   $("csvSave").addEventListener("click", async () => {
@@ -296,10 +290,14 @@ async function openRun(runId) {
         </div>`).join("")}
     </section>`;
   $("runBack").addEventListener("click", () => openRecording(run.recId));
+  // Building the report re-reads and base64-encodes every screenshot — do it
+  // once per opened run and share the result between the .md and .html buttons.
+  let reportOnce = null;
+  const reportMd = () => (reportOnce = reportOnce || runReportMarkdown(run));
   $("runDlMd").addEventListener("click", async () =>
-    download(`Evidence_${runFileStem(run)}.md`, await runReportMarkdown(run), "text/markdown"));
+    download(`Evidence_${runFileStem(run)}.md`, await reportMd(), "text/markdown"));
   $("runDlHtml").addEventListener("click", async () => {
-    const body = mdToHtml(await runReportMarkdown(run));
+    const body = mdToHtml(await reportMd());
     download(`Evidence_${runFileStem(run)}.html`,
       `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Evidence — ${esc(run.recTitle)}</title>
 <style>body{font:15px/1.6 system-ui,sans-serif;max-width:820px;margin:32px auto;padding:0 24px}
@@ -310,8 +308,7 @@ img{max-width:100%;border:1px solid #ccc;border-radius:6px;margin:8px 0}</style>
 }
 
 function runFileStem(run) {
-  return `${run.recTitle}_${new Date(run.startedAt).toISOString().slice(0, 10)}`
-    .replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, 60) || "run";
+  return PTCommon.fileStem(`${run.recTitle}_${new Date(run.startedAt).toISOString().slice(0, 10)}`, 60, "run");
 }
 
 async function runReportMarkdown(run) {
@@ -452,8 +449,8 @@ $("libList").addEventListener("click", async (e) => {
     case "export": {
       const pack = await buildPack(id);
       if (!pack) break;
-      const stem = pack.rec.title.replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, 60) || "recording";
-      download(`${stem}.ptpack`, JSON.stringify(pack), "application/json");
+      download(`${PTCommon.fileStem(pack.rec.title, 60, "recording")}.ptpack`,
+        JSON.stringify(pack), "application/json");
       break;
     }
   }

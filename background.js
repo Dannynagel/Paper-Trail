@@ -67,6 +67,8 @@ async function refreshBadge() {
 }
 
 async function setSentinelAlert(on) {
+  const { sentinelAlert } = await chrome.storage.local.get({ sentinelAlert: false });
+  if (sentinelAlert === !!on) return; // no change — skip the write and repaint
   await chrome.storage.local.set({ sentinelAlert: !!on });
   await refreshBadge();
 }
@@ -508,31 +510,15 @@ function sentinelAlert(title, counts, summary) {
   setSentinelAlert(true).catch(() => {});
 }
 
-function sentinelWaitLoad(tabId, ms) {
-  return new Promise((res) => {
-    let settled = false;
-    const finish = (ok) => {
-      if (settled) return;
-      settled = true;
-      chrome.tabs.onUpdated.removeListener(onUpd);
-      res(ok);
-    };
-    const onUpd = (id, info) => {
-      if (id === tabId && info.status === "complete") finish(true);
-    };
-    chrome.tabs.onUpdated.addListener(onUpd);
-    setTimeout(() => finish(false), ms);
-  });
-}
-
 // Same origin+path tolerance and 20 s timeout as the panel's Verify mode.
+// Load-waiting and frame probing live in PTCommon (shared with verify.js).
 async function sentinelEnsureAt(tabId, url) {
   let tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) return { reached: false, finalUrl: "" };
   if (PTCommon.samePage(tab.url, url) && tab.status === "complete") {
     return { reached: true, finalUrl: tab.url };
   }
-  const done = sentinelWaitLoad(tabId, 20000);
+  const done = PTCommon.waitTabLoad(20000, (id) => id === tabId);
   await chrome.tabs.update(tabId, { url });
   const ok = await done;
   if (!ok) return { reached: false, finalUrl: "" };
@@ -542,28 +528,6 @@ async function sentinelEnsureAt(tabId, url) {
   return { reached: PTCommon.sameOrigin(tab.url, url), finalUrl: tab.url || "" };
 }
 
-async function sentinelProbe(tabId, step) {
-  let frames = [];
-  try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch (e) {}
-  if (!frames || !frames.length) frames = [{ frameId: 0 }];
-  const rank = { found: 3, fallback: 2, missing: 1 };
-  let best = { status: "missing" };
-  for (const f of frames) {
-    const r = await new Promise((res) => {
-      chrome.tabs.sendMessage(tabId, {
-        cmd: "probeStep",
-        step: { selector: step.selector, anchors: step.anchors, label: step.label, kind: step.kind, type: step.type }
-      }, { frameId: f.frameId }, (resp) => {
-        void chrome.runtime.lastError;
-        res(resp || null);
-      });
-    });
-    if (!r) continue;
-    if (rank[r.status] > rank[best.status]) best = r;
-    if (best.status === "found") break;
-  }
-  return best;
-}
 
 async function sentinelVerify(rec) {
   const grades = [];
@@ -577,7 +541,7 @@ async function sentinelVerify(rec) {
       if (tabId === null) {
         const created = await chrome.tabs.create({ url: s.url, active: false });
         tabId = created.id;
-        const ok = await sentinelWaitLoad(tabId, 20000);
+        const ok = await PTCommon.waitTabLoad(20000, (id) => id === tabId);
         await new Promise(r => setTimeout(r, 600));
         const t = ok ? await chrome.tabs.get(tabId).catch(() => null) : null;
         nav = { reached: !!(t && PTCommon.sameOrigin(t.url, s.url)), finalUrl: t ? t.url : "" };
@@ -590,7 +554,7 @@ async function sentinelVerify(rec) {
         grades.push(PTCommon.samePage(nav.finalUrl, s.url) ? "found" : "fallback");
         continue;
       }
-      const probe = await sentinelProbe(tabId, s);
+      const probe = await PTCommon.probeFrames(tabId, s);
       grades.push(probe.status || "missing");
     }
   } finally {
@@ -848,7 +812,7 @@ async function shotDataFor(step) {
 // Generation source: the live session, or a saved recording from the library.
 // Returns steps plus the captured HTTP log (consumed only by the psweb target).
 async function resolveSource(recordingId) {
-  if (!recordingId) return { steps: session.steps, http: session.http || [], paramSets: 0 };
+  if (!recordingId) return { steps: session.steps, http: session.http || [] };
   const rec = await PTDB.getRecording(recordingId);
   if (!rec) throw new Error("Recording not found in library.");
   // paramSets travels as a COUNT only — row values never leave the machine.
@@ -1206,11 +1170,10 @@ async function loadBranchSet(trunkId) {
   const trunk = await PTDB.getRecording(trunkId);
   if (!trunk) throw new Error("Recording not found in library.");
   const metas = await PTDB.listRecordings();
-  const variants = [];
-  for (const m of metas.filter(x => x.variantOf === trunkId)) {
-    const rec = await PTDB.getRecording(m.id);
-    if (rec) variants.push({ rec, entries: PTCommon.diffSteps(trunk.steps, rec.steps) });
-  }
+  const recs = await Promise.all(
+    metas.filter(x => x.variantOf === trunkId).map(m => PTDB.getRecording(m.id)));
+  const variants = recs.filter(Boolean)
+    .map(rec => ({ rec, entries: PTCommon.diffSteps(trunk.steps, rec.steps) }));
   if (!variants.length) throw new Error("No variants are tagged on this recording.");
   return { trunk, variants };
 }
