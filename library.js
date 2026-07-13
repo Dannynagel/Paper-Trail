@@ -123,6 +123,8 @@ async function openRecording(id) {
           <div class="tools">
             ${(step.type === "input" || step.type === "select")
               ? `<button data-libact="param" data-id="${step.id}" title="Mark as run-time parameter">⚙</button>` : ""}
+            ${(srcByStep.has(step.id) && typeof openRedactor === "function")
+              ? `<button data-libact="redact" data-id="${step.id}" title="Black out parts of this screenshot (permanent)">🖌</button>` : ""}
           </div>
         </div>`).join("")}
     </section>
@@ -142,6 +144,8 @@ async function openRecording(id) {
       </section>` : ""}`;
   detail.querySelectorAll("button[data-runid]").forEach(btn =>
     btn.addEventListener("click", () => openRun(btn.dataset.runid)));
+  detail.querySelectorAll("button[data-libact='redact']").forEach(btn =>
+    btn.addEventListener("click", () => openRedactor(btn.dataset.id, () => openRecording(rec.id))));
   if (csvParamNames(rec).length) wireCsvSection(rec);
   detail.querySelectorAll("button[data-libact='param']").forEach(btn =>
     btn.addEventListener("click", async () => {

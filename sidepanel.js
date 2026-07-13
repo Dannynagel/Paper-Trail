@@ -108,6 +108,8 @@ function render() {
       <div class="tools">
         ${(step.type === "input" || step.type === "select")
           ? `<button data-act="param" data-id="${step.id}" title="Mark as run-time parameter (changes every run)">⚙</button>` : ""}
+        ${(step.hasShot && typeof openRedactor === "function")
+          ? `<button data-act="redact" data-id="${step.id}" title="Black out parts of this screenshot (permanent)">🖌</button>` : ""}
         ${(step.shot || step.hasShot) ? `<button data-act="dropShot" data-id="${step.id}" title="Remove screenshot">🖼✕</button>` : ""}
         <button data-act="delete" data-id="${step.id}" title="Delete step">✕</button>
       </div>
@@ -511,6 +513,10 @@ $("steps").addEventListener("click", async (e) => {
         if (name !== undefined) await send({ cmd: "setParam", id: step.id, param: name });
       }
       refresh();
+      return;
+    }
+    if (btn.dataset.act === "redact") {
+      if (typeof openRedactor === "function") openRedactor(btn.dataset.id, refresh);
       return;
     }
     const cmd = { delete: "deleteStep", dropShot: "dropShot", dropNarration: "dropNarration" }[btn.dataset.act];
