@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PT Test — Order form</title>
+<style>body{font:14px sans-serif;padding:20px}label{display:block;margin:8px 0 2px}</style>
+</head>
+<body>
+<h1>Order form</h1>
+<form id="orderForm" action="/submit" method="post">
+  <label for="fullName">Full name</label>
+  <input id="fullName" name="fullName" type="text">
+
+  <label for="quantity">Quantity</label>
+  <input id="quantity" name="quantity" type="number">
+
+  <label for="color">Color</label>
+  <select id="color" name="color">
+    <option value="">-- pick --</option>
+    <option>Red</option>
+    <option>Blue</option>
+  </select>
+
+  <label for="secretCode">Password</label>
+  <input id="secretCode" name="password" type="password">
+
+  <label><input type="checkbox" id="rush" name="rush"> Rush order</label>
+
+  <button type="button" id="addItem">Add item</button>
+  <button type="submit" id="submitOrder">Submit order</button>
+</form>
+
+<div>Clicks: <span id="clicks">0</span></div>
+
+<script>
+  // Instrumentation the smoke test reads back to prove the page really reacted.
+  let clicks = 0;
+  document.getElementById("addItem").addEventListener("click", () => {
+    clicks++;
+    document.getElementById("clicks").textContent = String(clicks);
+  });
+  window.__events = [];
+  for (const id of ["fullName", "quantity", "color", "secretCode", "rush"]) {
+    const el = document.getElementById(id);
+    el.addEventListener("input", () => window.__events.push(id + ":input"));
+    el.addEventListener("change", () => window.__events.push(id + ":change"));
+  }
+  document.getElementById("orderForm").addEventListener("submit", (e) => e.preventDefault());
+</script>
+</body>
+</html>

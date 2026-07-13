@@ -1,16 +1,21 @@
 # Paper Trail — Manual Test Script
 
 There is no build step and most of the extension is Chrome-API glue, so testing is
-two-layered: **pure logic** runs in `tests.html`, and the **integration paths** below
-are walked by hand against a loaded unpacked extension (`chrome://extensions` →
+three-layered: **pure logic** runs in `tests.html`, the **automated end-to-end
+smoke suite** in [`test/`](../test/README.md) drives the real unpacked extension
+headlessly (recording, autopilot, evidence, sentinel, generation against a stub
+endpoint — run it after any change), and the **integration paths** below are
+walked by hand against a loaded unpacked extension (`chrome://extensions` →
 Developer mode → Load unpacked). Re-run the relevant section after touching the
 corresponding files.
 
-## 0. Pure logic (automated)
+## 0. Pure logic + smoke suite (automated)
 
-Open `tests.html` in any browser (no extension needed). All assertions must be green.
-Covers: label normalization/matching, SPA-tolerant URL identity, the verify summary
-reducer, and the audit stats used by the privacy report.
+Open `tests.html` in any browser (no extension needed) — or run `node
+test/tests-run.js` headlessly. All assertions must be green. Covers: label
+normalization/matching, SPA-tolerant URL identity, the verify summary reducer,
+audit stats, CSV parsing, and run summaries. Then `node test/smoke.js` for the
+end-to-end checks (see `test/README.md` for prerequisites).
 
 ## 1. Recording & library (db.js, library.js, background.js, sidepanel.js)
 
@@ -114,10 +119,11 @@ stub endpoints and fake media devices):
 Pure logic (`tests.html`): `parseCsv` (quoted/escaped/CRLF/multi-line/ragged),
 `summarizeRun` outcome lines.
 
-The automated smoke harness covers the full happy paths (autopilot free-run and
-per-step confirm, masked-value human gate, anchors-only stop, evidence records
-and export, CSV validation and Run-all-rows, `sentinelRunNow`, variant tagging
-and `generateBranch` payload, `.ptpack` round-trip, `redactBlob` + brush apply).
+The automated smoke suite (`test/smoke.js`) covers the full happy paths
+(autopilot free-run and per-step confirm, masked-value human gate, anchors-only
+stop, evidence records and export, CSV validation and Run-all-rows,
+`sentinelRunNow`, variant tagging and `generateBranch` payload, `.ptpack`
+round-trip, `redactBlob` + brush apply).
 Manual integration paths worth walking against real sites:
 
 1. **Autopilot on a real SPA** (React/Vue app): free-run a saved recording;
