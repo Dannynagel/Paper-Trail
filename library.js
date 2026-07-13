@@ -71,20 +71,38 @@ async function openRecording(id) {
     </div>
     <section class="steps lib-steps">
       ${rec.steps.map(step => `
-        <div class="step">
+        <div class="step" data-step-id="${step.id}">
           <div class="rail"><span class="n">${step.n}</span></div>
           <div class="body">
             <div class="action">${actionHtml(step.text)}</div>
             <div class="page" title="${esc(step.url)}">${esc(step.pageTitle || step.url)}</div>
             ${step.masked ? `<div class="masked">value masked</div>` : ""}
+            ${step.param ? `<div class="param-chip">param: &lt;${esc(step.param)}&gt;</div>` : ""}
             ${step.note ? `<div class="page">📝 ${esc(step.note)}</div>` : ""}
             ${step.caption ? `<div class="caption">🖼→📝 <em>${esc(step.caption)}</em></div>` : ""}
             ${step.narration ? `<div class="narration">🎙 <em>${esc(step.narration)}</em></div>` : ""}
             ${srcByStep.has(step.id)
               ? `<img src="${srcByStep.get(step.id)}" alt="Step ${step.n} screenshot" loading="lazy">` : ""}
           </div>
+          <div class="tools">
+            ${(step.type === "input" || step.type === "select")
+              ? `<button data-libact="param" data-id="${step.id}" title="Mark as run-time parameter">⚙</button>` : ""}
+          </div>
         </div>`).join("")}
     </section>`;
+  detail.querySelectorAll("button[data-libact='param']").forEach(btn =>
+    btn.addEventListener("click", async () => {
+      const fresh = await PTDB.getRecording(rec.id);
+      if (!fresh) return;
+      const step = fresh.steps.find(s => s.id === btn.dataset.id);
+      if (!step) return;
+      const name = askParamName(step);
+      if (name === undefined) return;
+      if (name) step.param = name; else delete step.param;
+      fresh.updatedAt = Date.now();
+      await PTDB.saveRecording(fresh);
+      openRecording(rec.id); // re-render with the new chip
+    }));
   $("libDetailClose").addEventListener("click", () => {
     detail.hidden = true;
     detail.innerHTML = "";

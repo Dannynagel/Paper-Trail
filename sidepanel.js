@@ -95,6 +95,7 @@ function render() {
         <div class="action">${actionHtml(step.text)}</div>
         <div class="page" title="${esc(step.url)}">${esc(step.pageTitle || step.url)}</div>
         ${step.masked ? `<div class="masked">value masked</div>` : ""}
+        ${step.param ? `<div class="param-chip">param: &lt;${esc(step.param)}&gt;</div>` : ""}
         ${step.shot ? `<img src="${step.shot}" alt="Step ${step.n} screenshot" loading="lazy">` :
           step.hasShot ? `<img data-shot-id="${step.id}" alt="Step ${step.n} screenshot" loading="lazy">` :
           (step.shotDropped ? `<div class="masked">screenshot removed</div>` : "")}
@@ -104,6 +105,8 @@ function render() {
         <textarea class="note" placeholder="Add note for the writer…" data-id="${step.id}">${esc(step.note)}</textarea>
       </div>
       <div class="tools">
+        ${(step.type === "input" || step.type === "select")
+          ? `<button data-act="param" data-id="${step.id}" title="Mark as run-time parameter (changes every run)">⚙</button>` : ""}
         ${(step.shot || step.hasShot) ? `<button data-act="dropShot" data-id="${step.id}" title="Remove screenshot">🖼✕</button>` : ""}
         <button data-act="delete" data-id="${step.id}" title="Delete step">✕</button>
       </div>
@@ -480,9 +483,33 @@ function renderMicStatus() {
 
 $("btnMic").addEventListener("click", () => (micStream ? stopMic() : startMic()));
 
+// "Quantity of items…" → "QUANTITY_OF_ITEMS" — default run-time parameter name.
+function paramNameFromLabel(label) {
+  return String(label || "VALUE").replace(/…$/, "").trim()
+    .replace(/[^\w ]/g, "").replace(/\s+/g, "_").toUpperCase().slice(0, 40) || "VALUE";
+}
+
+// Prompt for a parameter name (blank clears). Shared by ledger and library.
+function askParamName(step) {
+  const def = step.param || paramNameFromLabel(step.label);
+  const name = prompt(
+    `Run-time parameter name for "${step.label}"\n(supplied fresh on every run — leave empty to unmark):`, def);
+  if (name === null) return undefined;          // cancelled
+  return name.trim().replace(/\s+/g, "_");      // "" clears the mark
+}
+
 $("steps").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-act]");
   if (btn) {
+    if (btn.dataset.act === "param") {
+      const step = currentSession.steps.find(s => s.id === btn.dataset.id);
+      if (step) {
+        const name = askParamName(step);
+        if (name !== undefined) await send({ cmd: "setParam", id: step.id, param: name });
+      }
+      refresh();
+      return;
+    }
     const cmd = { delete: "deleteStep", dropShot: "dropShot", dropNarration: "dropNarration" }[btn.dataset.act];
     if (cmd) await send({ cmd, id: btn.dataset.id });
     refresh();
@@ -658,6 +685,12 @@ ${(a.captionedSteps && a.captionedSteps.length)
 ## Masked values
 
 ${masked}
+
+## Inputs (run-time parameters)
+
+${(a.paramSteps && a.paramSteps.length)
+  ? a.paramSteps.map(p => `- Step ${p.n}: **<${p.param}>** — supplied fresh on every run; the recorded value travels only as a sample`).join("\n")
+  : "- None marked"}
 
 ## Narration
 

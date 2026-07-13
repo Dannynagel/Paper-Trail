@@ -424,6 +424,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       }
+      case "setParam": {
+        const s = session.steps.find(s => s.id === msg.id);
+        if (s) {
+          if (msg.param) s.param = String(msg.param).trim();
+          else delete s.param;
+        }
+        await persist();
+        sendResponse({ ok: true });
+        break;
+      }
       case "setNarration": {
         const byId = new Map(session.steps.map(s => [s.id, s]));
         for (const item of msg.items || []) {
@@ -544,6 +554,7 @@ function buildActionLog(steps) {
     note: s.note || undefined,
     narration: s.narration || undefined,
     caption: (s.type === "desktop" && s.caption) || undefined, // vision caption written at capture time
+    run_time_parameter: s.param || undefined,                  // per-run input: render as <NAME>
     has_screenshot: stepHasShot(s)
   }));
 }
@@ -561,7 +572,8 @@ Rules:
 6. Steps with source "desktop-capture" have NO semantic label. If such a step carries a "caption" field, it was written by a vision model from the frame at capture time — treat it as the step's description (its screenshot may not be attached). Otherwise the attached screenshot with the matching step number is the source of truth: describe only the action or state that is clearly visible; if ambiguous, describe conservatively rather than guessing.
 7. Infer Prerequisites from the pages and applications used (required system access, accounts). Be conservative — mark inferences as such.
 8. Use the operator's notes (the "note" fields) as authoritative context.
-9. The "narration" fields are the operator's spoken commentary transcribed during recording. Use them as authoritative intent and context — the "why" behind steps, prerequisites, warnings — but attribute nothing to the UI from them: element labels in the action log remain the only ground truth for what is on screen.`;
+9. The "narration" fields are the operator's spoken commentary transcribed during recording. Use them as authoritative intent and context — the "why" behind steps, prerequisites, warnings — but attribute nothing to the UI from them: element labels in the action log remain the only ground truth for what is on screen.
+10. Steps with "run_time_parameter" take a different value on every run (e.g. the affected user in a JML process). Write the step using the placeholder in angle brackets exactly — e.g. Enter <EMPLOYEE_ID> in **Employee ID** — and add an "Inputs" list under Prerequisites naming every parameter with a one-line description of what to supply.`;
 
 // Everything generateSOP would send, without sending it. The privacy audit
 // renders this same object, so the audit is the real payload by construction.
@@ -624,6 +636,7 @@ function buildAutomationLog(steps) {
     kind: s.kind || undefined,
     value: s.masked ? undefined : (s.value || undefined),
     value_masked: s.masked || undefined,             // masked entries become script parameters
+    param_name: s.param || undefined,                // operator-marked run-time parameter (exact name)
     selector: s.selector || undefined,               // web: verified CSS selector (primary)
     alt_selectors: altSelectors(s),                  // web: alternate verified anchors, trust-ordered
     automation_id: s.autoId || undefined,            // desktop: UIA AutomationId
@@ -653,7 +666,8 @@ Rules:
 6. Include: a param() block, a Write-StepLog helper, a Wait-ForElement helper with timeout + retry for both web and UIA lookups, try/catch per step with the step number in the error, and a summary at the end.
 7. Comment each step with its original step number and human description.
 8. Be conservative: replay exactly what was recorded; no speculative branches.
-9. Some steps carry "alt_selectors" — alternate verified anchors for the SAME element, in decreasing trust order. Try the primary "selector" first and fall back through alt_selectors in the element-lookup helper. Never invent anchors that are not in the log.`,
+9. Some steps carry "alt_selectors" — alternate verified anchors for the SAME element, in decreasing trust order. Try the primary "selector" first and fall back through alt_selectors in the element-lookup helper. Never invent anchors that are not in the log.
+10. Steps with "param_name" are operator-marked run-time inputs (they change every run — e.g. the affected user in a JML process): emit a mandatory param() parameter with EXACTLY that name; if the log shows a recorded value, put it in a comment as a sample, never as a default.`,
 
   aa: `You are an RPA consultant converting a recorded procedure into an Automation Anywhere A360 bot build sheet. Bot JSON is not a supported hand-authoring format, so produce the document a CoE developer would use to assemble the bot quickly and correctly in the A360 editor.
 
@@ -668,7 +682,8 @@ Rules:
 4. Steps with "value_masked": true reference the credential/prompt variable from the Variables table.
 5. Steps with source "desktop-capture" have no anchors: flag them as "manual capture required in Recorder" with the step's description.
 6. Be conservative and exact — a developer should be able to build the bot without re-recording.
-7. Some steps carry "alt_selectors" — alternate verified anchors for the SAME element, in decreasing trust order. List them in the entry's object properties as secondary match criteria the developer can pin if the primary anchor proves unstable. Never invent anchors that are not in the log.`,
+7. Some steps carry "alt_selectors" — alternate verified anchors for the SAME element, in decreasing trust order. List them in the entry's object properties as secondary match criteria the developer can pin if the primary anchor proves unstable. Never invent anchors that are not in the log.
+8. Steps with "param_name" are operator-marked run-time inputs: add them to the Variables table with EXACTLY that name (type: prompt/input variable) and reference the variable in the corresponding Bot Action.`,
 
   playwright: `You are an automation engineer converting a recorded procedure into a production-quality Node.js Playwright script.
 
@@ -684,7 +699,8 @@ Rules:
 5. Desktop steps become a clearly-marked "// TODO step N: not a browser step — <description>" comment, never fake code.
 6. Wrap each step in try/catch that rethrows with the step number and human description; console.log each step before performing it.
 7. Use the operator's "note" and "narration" fields as code comments where they clarify intent.
-8. Be conservative: replay exactly what was recorded; no speculative branches, no extra assertions.`,
+8. Be conservative: replay exactly what was recorded; no speculative branches, no extra assertions.
+9. Steps with "param_name" are operator-marked run-time inputs: read them from process.env with EXACTLY that name (PT_ prefix not needed when param_name is present), list them in the required-environment comment block, and treat any recorded value as a sample in a comment only.`,
 
   pwtest: `You are a QA engineer converting a recorded procedure into a READ-ONLY Playwright regression test (@playwright/test) that verifies the procedure's UI anchors still resolve — the CI version of an SOP health check.
 
@@ -899,6 +915,7 @@ async function buildAudit(target, userContext, recordingId, recordingIdB) {
     maskedSteps: stats.maskedSteps,             // masked values: label only, value never captured
     narratedSteps: stats.narratedSteps,         // step numbers whose spoken-narration transcript is sent
     captionedSteps: stats.captionedSteps,       // desktop frames captioned at capture — caption text sent, pixels stay local
+    paramSteps: stats.paramSteps,               // operator-marked run-time parameters
     system: req.system,
     userText: req.userText,
     body                                        // exact request body, images redacted, no credentials
