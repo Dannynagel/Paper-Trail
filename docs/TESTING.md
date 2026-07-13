@@ -1,21 +1,22 @@
 # Paper Trail — Manual Test Script
 
 There is no build step and most of the extension is Chrome-API glue, so testing is
-three-layered: **pure logic** runs in `tests.html`, the **automated end-to-end
-smoke suite** in [`test/`](../test/README.md) drives the real unpacked extension
-headlessly (recording, autopilot, evidence, sentinel, generation against a stub
-endpoint — run it after any change), and the **integration paths** below are
-walked by hand against a loaded unpacked extension (`chrome://extensions` →
-Developer mode → Load unpacked). Re-run the relevant section after touching the
-corresponding files.
+three-layered: **pure logic** runs in `tests.html`; the **alpha test harness**
+([`alpha-test/`](../alpha-test/README.md)) drives the real unpacked extension
+end-to-end in headless Chromium against stub endpoints (recording, autopilot,
+evidence, sentinel, generation, and the v1.1–v1.4 feature suite — run it after
+any change); and the **integration paths** below are walked by hand against a
+loaded unpacked extension (`chrome://extensions` → Developer mode → Load
+unpacked). Re-run the relevant section after touching the corresponding files.
 
 ## 0. Pure logic + smoke suite (automated)
 
 Open `tests.html` in any browser (no extension needed) — or run `node
-test/tests-run.js` headlessly. All assertions must be green. Covers: label
+alpha-test/tests-run.js` headlessly. All assertions must be green. Covers: label
 normalization/matching, SPA-tolerant URL identity, the verify summary reducer,
-audit stats, CSV parsing, and run summaries. Then `node test/smoke.js` for the
-end-to-end checks (see `test/README.md` for prerequisites).
+audit stats, CSV parsing, and run summaries. Then `node alpha-test/smoke.js`
+(v1.5-era end-to-end) and `node alpha-test/smoke-features-1x.js` (v1.1–v1.4
+feature suite) — see `alpha-test/README.md` for prerequisites.
 
 ## 1. Recording & library (db.js, library.js, background.js, sidepanel.js)
 
@@ -119,7 +120,7 @@ stub endpoints and fake media devices):
 Pure logic (`tests.html`): `parseCsv` (quoted/escaped/CRLF/multi-line/ragged),
 `summarizeRun` outcome lines.
 
-The automated smoke suite (`test/smoke.js`) covers the full happy paths
+The alpha test harness (`alpha-test/smoke.js`) covers the full happy paths
 (autopilot free-run and per-step confirm, masked-value human gate, anchors-only
 stop, evidence records and export, CSV validation and Run-all-rows,
 `sentinelRunNow`, variant tagging and `generateBranch` payload, `.ptpack`

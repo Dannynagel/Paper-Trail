@@ -63,7 +63,7 @@ options.* / mic.*        Settings · one-shot mic-permission helper
 native-host/             Windows UIA companion (PowerShell 5.1+, embedded C#)
 docs/                    DESIGN · INSTALL · USAGE · TESTING
 tests.html               Browser-runnable assertions for the pure logic
-test/                    Automated harness: headless tests.html runner + end-to-end smoke suite
+alpha-test/              Alpha test harness: headless tests.html runner + two end-to-end smoke suites
 
 ```
 
