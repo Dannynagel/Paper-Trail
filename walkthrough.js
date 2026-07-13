@@ -17,6 +17,10 @@ async function startWalkthrough(recId) {
     alert("A Verify run is in progress — let it finish first.");
     return;
   }
+  if (typeof ap !== "undefined" && ap) {
+    alert("Autopilot is running — stop it first.");
+    return;
+  }
   if (currentSession.recording) {
     alert("Stop recording before starting a walkthrough.");
     return;

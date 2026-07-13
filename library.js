@@ -28,6 +28,7 @@ async function renderLibrary() {
   const canWalk = typeof startWalkthrough === "function";
   const canAudit = typeof startAudit === "function";
   const canCompare = typeof startCompare === "function" && list.length > 1;
+  const canRun = typeof startAutopilot === "function";
 
   wrap.innerHTML = list.map(r => `
     <div class="step lib-row" data-id="${r.id}">
@@ -40,6 +41,7 @@ async function renderLibrary() {
           r.httpCount ? ` · ${r.httpCount} HTTP` : ""}</div>
         <div class="lib-actions">
           <button data-act="open">Open</button>
+          ${canRun ? `<button data-act="run" title="Autopilot: perform the recorded steps in the browser">⚡ Run</button>` : ""}
           ${canWalk ? `<button data-act="walk" title="Guided walkthrough on the live site">▶ Walk</button>` : ""}
           ${canVerify ? `<button data-act="verify" title="Check anchors against the live site">✓ Verify</button>` : ""}
           <button data-act="regen" title="Generate from this recording">Re-gen</button>
@@ -169,6 +171,9 @@ $("libList").addEventListener("click", async (e) => {
       break;
     case "walk":
       if (typeof startWalkthrough === "function") startWalkthrough(id);
+      break;
+    case "run":
+      if (typeof startAutopilot === "function") startAutopilot(id);
       break;
     case "audit":
       if (typeof startAudit === "function") startAudit(id);

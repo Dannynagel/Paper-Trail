@@ -7,9 +7,11 @@
   if (window.__paperTrailLoaded) return;
   window.__paperTrailLoaded = true;
 
-  // One mode machine, one listener set: "idle" | "recording" | "walkthrough".
-  // Recording is owned by the broadcast state; walkthrough is owned by
-  // tab-targeted walkArm/walkDisarm messages and never clobbered by broadcasts.
+  // One mode machine, one listener set:
+  // "idle" | "recording" | "walkthrough" | "autopilot".
+  // Recording is owned by the broadcast state; walkthrough and autopilot are
+  // owned by tab-targeted messages and never clobbered by broadcasts — but a
+  // recording start tears both down.
   let mode = "idle";
   let captureValues = false;
   let lastClickTs = 0;
@@ -27,12 +29,14 @@
     if (!msg) return;
     if (msg.evt === "recordingState") {
       if (msg.recording) {
-        if (mode === "walkthrough") walkCleanup();
+        if (mode === "walkthrough" || mode === "autopilot") walkCleanup();
         mode = "recording";
       } else if (mode === "recording") {
         mode = "idle";
       }
       captureValues = !!msg.captureValues;
+    } else if (msg.cmd === "execStep") {
+      sendResponse(execStep(msg.step || {}, msg.value, !!msg.confirm, !!msg.gate));
     } else if (msg.cmd === "probeStep") {
       const r = resolveStep(msg.step || {});
       sendResponse({
@@ -43,7 +47,7 @@
         frameUrl: location.href
       });
     } else if (msg.cmd === "walkArm") {
-      sendResponse(walkArm(msg.step || {}));
+      sendResponse(walkArm(msg.step || {}, msg.tip));
     } else if (msg.cmd === "walkDisarm") {
       walkCleanup();
       sendResponse({ ok: true });
@@ -192,7 +196,10 @@
   //   fallback — the primary drifted, but an alternate anchor or the label
   //              found the element (matchedSelector + freshAnchors suggest a repair)
   //   missing  — no anchor resolves
-  function resolveStep(step) {
+  // anchorsOnly skips the label scan: Autopilot may ACT only on recorded
+  // anchors — a label guess is good enough to suggest a repair, never to
+  // click on the user's behalf.
+  function resolveStep(step, anchorsOnly) {
     const tryAnchor = (sel) => {
       let el = null;
       try { el = document.querySelector(sel); } catch (e) { return null; /* invalid selector */ }
@@ -218,7 +225,7 @@
       }
     }
     // 3. Label scan across interactive elements.
-    if (step.label) {
+    if (step.label && !anchorsOnly) {
       const matches = [];
       for (const c of document.querySelectorAll(INTERACTIVE)) {
         if (!isVisible(c)) continue;
@@ -248,20 +255,23 @@
   let guideBox = null, guideTip = null;
   let walkLastPing = 0, walkWatch = null, repoQueued = false;
 
-  function walkArm(step) {
-    walkCleanup();
-    const r = resolveStep(step);
-    if (!r.el) return { armed: false, status: r.status, matchCount: r.matchCount };
+  function stepTip(step) {
+    return `${step.n ? step.n + ". " : ""}${String(step.text || "").replace(/\*\*/g, "")}`;
+  }
 
+  // Shared overlay arming: highlight el for step, watch for the user's action
+  // (checkWalkMatch), keep the deadman ticking. Used by the walkthrough and by
+  // Autopilot's staged-confirm and human-gate states.
+  function armOverlay(step, el, tip, newMode) {
     armedStep = step;
-    armedEl = r.el;
-    mode = "walkthrough";
+    armedEl = el;
+    mode = newMode;
 
     guideBox = document.createElement("div");
     guideBox.className = "paper-trail-guide-box";
     guideTip = document.createElement("div");
     guideTip.className = "paper-trail-guide-tip";
-    guideTip.textContent = `${step.n ? step.n + ". " : ""}${String(step.text || "").replace(/\*\*/g, "")}`;
+    guideTip.textContent = tip;
     document.documentElement.appendChild(guideBox);
     document.documentElement.appendChild(guideTip);
     placeGuide();
@@ -277,7 +287,13 @@
       if (Date.now() - walkLastPing > 20000) walkCleanup();
       else repositionGuide();
     }, 1000);
+  }
 
+  function walkArm(step, tip) {
+    walkCleanup();
+    const r = resolveStep(step);
+    if (!r.el) return { armed: false, status: r.status, matchCount: r.matchCount };
+    armOverlay(step, r.el, tip || stepTip(step), "walkthrough");
     return { armed: true, via: r.status === "found" ? "selector" : "label" };
   }
 
@@ -290,7 +306,7 @@
     window.removeEventListener("scroll", repositionGuide, true);
     window.removeEventListener("resize", repositionGuide);
     if (walkWatch) { clearInterval(walkWatch); walkWatch = null; }
-    if (mode === "walkthrough") mode = "idle";
+    if (mode === "walkthrough" || mode === "autopilot") mode = "idle";
   }
 
   function repositionGuide() {
@@ -343,9 +359,10 @@
     if (!via) return;
 
     const stepId = armedStep.id;
+    const keepMode = mode; // stay in walkthrough/autopilot until the panel disarms or re-arms
     if (evType === "click" && e.clientX) ripple(e.clientX, e.clientY);
     walkCleanup();
-    mode = "walkthrough"; // stay in walkthrough until the panel disarms or re-arms
+    mode = keepMode;
     try { chrome.runtime.sendMessage({ evt: "walkStepDone", stepId, via }); } catch (err) {}
   }
 
@@ -368,6 +385,96 @@
         .forEach(x => x.classList.remove("paper-trail-text-hit"));
     }, 6000);
     return count;
+  }
+
+  // ── Autopilot executor ──────────────────────────────────────────────────
+  // Performs one recorded step on this page. Safety rules (see docs/DESIGN):
+  //  · anchors only — resolveStep(step, true) never label-guesses an element
+  //  · masked steps (and gate:true steps whose value the panel doesn't have)
+  //    are NEVER executed: the human performs them under the guide overlay,
+  //    detected by checkWalkMatch exactly like a walkthrough step
+  //  · confirm:true only stages (highlights); a second call executes
+  function execStep(step, value, confirm, gate) {
+    if (step.masked || gate) {
+      walkCleanup();
+      const r = resolveStep(step); // human guidance may use the label scan
+      if (!r.el) return { failed: true, reason: "element not found for manual entry" };
+      const why = step.masked ? "value is masked — Autopilot never handles it" : "no recorded value";
+      armOverlay(step, r.el, `${stepTip(step)} — do this yourself now (${why})`, "autopilot");
+      return { humanGate: true };
+    }
+
+    const r = resolveStep(step, true);
+    if (!r.el) {
+      return {
+        failed: true,
+        reason: r.status === "missing" ? "no recorded anchor resolves on this page" : "anchor mismatch"
+      };
+    }
+
+    if (confirm) {
+      walkCleanup();
+      armOverlay(step, r.el, `${stepTip(step)} — ▶ in the panel runs it (or do it yourself)`, "autopilot");
+      return { staged: true, via: r.matchedSelector };
+    }
+
+    walkCleanup();
+    mode = "autopilot";
+    try {
+      performStep(r.el, step, value);
+    } catch (e) {
+      return { failed: true, reason: String(e.message || e) };
+    }
+    return { done: true, via: r.matchedSelector };
+  }
+
+  function performStep(el, step, value) {
+    const val = value == null ? "" : String(value);
+    switch (step.type) {
+      case "click":
+        el.click();
+        return;
+      case "input": {
+        const type = (el.type || "").toLowerCase();
+        if (type === "checkbox" || type === "radio") {
+          // A real click keeps framework listeners and label toggling intact.
+          if (el.checked !== (val !== "unchecked")) el.click();
+          return;
+        }
+        const proto = el.tagName.toLowerCase() === "textarea"
+          ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (!desc || !desc.set) throw new Error("element does not accept a value");
+        try { el.focus(); } catch (e) {}
+        // Native setter so React/Vue/Angular value trackers see the change.
+        desc.set.call(el, val);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return;
+      }
+      case "select": {
+        let picked = null;
+        for (const opt of el.options || []) {
+          if (opt.value === val || PTCommon.normLabel(opt.textContent) === PTCommon.normLabel(val)) {
+            picked = opt;
+            break;
+          }
+        }
+        if (!picked) throw new Error(`option "${val}" not found in the dropdown`);
+        el.value = picked.value;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return;
+      }
+      case "key": {
+        try { el.focus(); } catch (e) {}
+        const opts = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+        el.dispatchEvent(new KeyboardEvent("keydown", opts));
+        el.dispatchEvent(new KeyboardEvent("keyup", opts));
+        return;
+      }
+      default:
+        throw new Error("Autopilot cannot execute step type: " + step.type);
+    }
   }
 
   window.addEventListener("pagehide", walkCleanup);
@@ -400,7 +507,7 @@
 
   // ── Event listeners (capture phase, so SPAs can't swallow them) ─────────
   document.addEventListener("click", (e) => {
-    if (mode === "walkthrough") { checkWalkMatch(e, "click"); return; }
+    if (mode === "walkthrough" || mode === "autopilot") { checkWalkMatch(e, "click"); return; }
     if (mode !== "recording") return;
     if (e.clientX === 0 && e.clientY === 0 && !e.detail) return; // synthetic
     const now = Date.now();
@@ -421,7 +528,7 @@
   }, true);
 
   document.addEventListener("change", (e) => {
-    if (mode === "walkthrough") { checkWalkMatch(e, "change"); return; }
+    if (mode === "walkthrough" || mode === "autopilot") { checkWalkMatch(e, "change"); return; }
     if (mode !== "recording") return;
     const el = e.target;
     const tag = (el.tagName || "").toLowerCase();
@@ -470,13 +577,16 @@
     const tag = (el.tagName || "").toLowerCase();
     if (tag !== "input" && tag !== "textarea") return;
     if (tag === "textarea" && !e.ctrlKey) return; // Enter in textarea is just a newline
-    if (mode === "walkthrough") { checkWalkMatch(e, "key"); return; }
+    if (mode === "walkthrough" || mode === "autopilot") { checkWalkMatch(e, "key"); return; }
     if (mode !== "recording") return;
+    const selector = cssPath(el);
     post({
       type: "key",
       label: labelForInput(el),
       value: "Enter",
       kind: "field",
+      selector,
+      anchors: anchorsFor(el, selector),
       x: 0, y: 0
     });
   }, true);

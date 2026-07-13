@@ -23,6 +23,10 @@ async function startVerify(recId) {
     alert("A walkthrough is in progress — end it first.");
     return;
   }
+  if (typeof ap !== "undefined" && ap) {
+    alert("Autopilot is running — stop it first.");
+    return;
+  }
   if (currentSession.recording) {
     alert("Stop recording before running Verify.");
     return;
