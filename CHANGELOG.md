@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.1
+
+Bug fixes from a post-release code review of the v1.5 features:
+
+- **`.ptpack` import no longer steals the original's screenshots**: step ids are reminted on import and screenshots remapped (the shots store is keyed by step id, so re-importing your own export used to silently move the original recording's screenshots to the copy).
+- **Evidence screenshots can no longer capture the wrong page**: the capture targets the run tab's window and only fires while the run tab is visible; steps completed while you're focused elsewhere are recorded without a shot instead of storing an unrelated page as "proof".
+- **Walkthrough evidence no longer skips steps**: the step index advances before the screenshot round-trip, closing a re-entrancy window where duplicate load events could double-record one step and silently skip the next.
+- **Autopilot follows clicks into new tabs** (shipped just after 1.5.0): a recorded `target="_blank"`/`window.open` click adopts the child tab instead of navigating away from the recorded path.
+- **"Check now" sentinel runs respect the recording guard**: no probe tabs open while you're recording (their HTTP traffic used to leak into the session's HTTP log), and runs can't overlap.
+- **The drift "!" badge is durable**: it now survives record/stop cycles and service-worker restarts (backed by a stored flag) until the Library is opened, instead of being wiped by the next badge write.
+- Autopilot no longer mis-grades an instantly-loading first page as a navigation failure.
+
 ## 1.5.0
 
 - **Autopilot**: ⚡ Run performs a saved recording's steps in the browser itself — anchors-only execution (a miss stops the run; a label guess never clicks), values set via native setters so framework listeners fire, per-step confirm or free-run, run-time parameter form (values panel-local). Masked steps and steps without a captured value always gate on a human under the guide overlay.
