@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PT Test — Order details</title>
+<style>body{font:14px sans-serif;padding:20px}</style>
+</head>
+<body>
+<h1>Order details</h1>
+<button id="confirmDetails">Confirm details</button>
+<div>Confirms: <span id="confirms">0</span></div>
+<script>
+  let confirms = 0;
+  document.getElementById("confirmDetails").addEventListener("click", () => {
+    confirms++;
+    document.getElementById("confirms").textContent = String(confirms);
+  });
+</script>
+</body>
+</html>

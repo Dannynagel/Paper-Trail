@@ -65,7 +65,7 @@ const server = http.createServer((req, res) => {
     res.end("<title>Submitted</title>OK");
     return;
   }
-  const file = req.url.split("?")[0] === "/form.html" ? "form.html" : null;
+  const file = { "/form.html": "form.html", "/page2.html": "page2.html" }[req.url.split("?")[0]];
   if (file) {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(fs.readFileSync(path.join(__dirname, file)));
@@ -648,6 +648,55 @@ const server = http.createServer((req, res) => {
       applied.sum !== redactTarget.sum || applied.size !== redactTarget.size, applied);
     check("stored screenshot is redacted and still decodable",
       applied.w === 200 && applied.dark, applied);
+
+    // ── Multi-tab Autopilot: follow a click into a new tab ──────────────────
+    section("Autopilot — follows a click into a new tab");
+    await send({ cmd: "start" });
+    const mtForm = await ctx.newPage();
+    await mtForm.goto(`${BASE}/form.html`);
+    await waitFor(async () => (await state()).steps.some(s => s.type === "nav"),
+      { desc: "mt nav step" });
+    const [mtDetails] = await Promise.all([
+      ctx.waitForEvent("page"),
+      mtForm.click("#openDetails")
+    ]);
+    await mtDetails.waitForLoadState();
+    await waitFor(async () => (await state()).steps.some(s =>
+      s.type === "click" && /open details/i.test(s.label)), { desc: "link click step" });
+    await mtDetails.click("#confirmDetails");
+    await waitFor(async () => (await state()).steps.some(s =>
+      s.type === "click" && /confirm details/i.test(s.label)), { desc: "cross-tab click step" });
+    check("recording captured the click in the child tab", true);
+    await send({ cmd: "stop" });
+    await panel.evaluate(() => { window.prompt = () => "Multi Tab Rec"; });
+    await panel.click("#tabBtnRecorder"); // earlier sections left the panel on the Library tab
+    await panel.click("#btnSave");
+    const mtRecId = await waitFor(() => panel.evaluate(async () => {
+      const l = await PTDB.listRecordings();
+      const r = l.find(x => x.title === "Multi Tab Rec");
+      return r ? r.id : null;
+    }), { desc: "multi-tab rec saved" });
+    await mtForm.close();
+    await mtDetails.close();
+
+    await panel.evaluate((id) => startAutopilot(id, {}, { stepConfirm: false }), mtRecId);
+    await waitFor(() => panel.evaluate(() => ap === null),
+      { timeout: 60000, desc: "multi-tab run completion" });
+    const mtPages = ctx.pages().filter(p => p !== panel);
+    const mtRunForm = mtPages.find(p => p.url().includes("form.html"));
+    const mtRunDetails = mtPages.find(p => p.url().includes("page2.html"));
+    check("child tab was opened and adopted (both pages live)",
+      !!mtRunForm && !!mtRunDetails, mtPages.map(p => p.url()));
+    check("step executed in the adopted tab",
+      !!mtRunDetails && (await mtRunDetails.locator("#confirms").textContent()) === "1");
+    check("original tab never navigated away",
+      !!mtRunForm && mtRunForm.url().includes("form.html"));
+    const mtRuns = await panel.evaluate((id) => PTDB.listRunsByRec(id), mtRecId);
+    check("multi-tab run completed clean (no failed/skipped steps)",
+      mtRuns.length === 1 && mtRuns[0].steps.every(s => s.status === "done"),
+      mtRuns[0] && mtRuns[0].steps.map(s => `${s.n}:${s.status}`));
+    await panel.evaluate((id) => PTDB.deleteRecording(id), mtRecId);
+    for (const p of ctx.pages()) if (p !== panel) await p.close().catch(() => {});
 
     // FEATURE SECTIONS APPENDED BELOW AS THEY ARE IMPLEMENTED
   } catch (e) {
