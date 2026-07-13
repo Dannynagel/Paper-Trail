@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- **Run-time parameters**: ⚙ marks input/select values as named per-run inputs (JML-style); SOPs get `<NAME>` placeholders and an Inputs list, scripts get mandatory named parameters, the audit lists them. Editable on live sessions and saved recordings.
+- **HTTP capture + pure-HTTP PowerShell target**: while recording, the page's form posts and API calls are logged (values masked, secret-like query params scrubbed, extension calls excluded; new `webRequest` permission). The new "PowerShell web — HTTP only" target replays that log with `Invoke-WebRequest`/`Invoke-RestMethod` only: cookie-session continuity, CSRF extraction, status assertions — no browser required.
+- **Delinea Secret Server mode**: a 🔐 checkbox on script targets makes generated scripts resolve every credential from on-prem Secret Server at runtime (module-free REST helpers, `-AuthMethod windows|token`, per-credential `-<Name>SecretId`), with the service-account password-rotation pattern: generate locally → change target → verify → write back to SS → loud out-of-sync failure.
+
 ## 1.3.0
 
 - **Caption-on-capture** (opt-in): desktop window-capture frames are described by the configured vision model the moment they're captured; captions travel as text at generation, so desktop-heavy recordings generate as fast as web-only ones and the request stays text-only. Failures degrade to the previous attach-at-generation behavior.

@@ -46,6 +46,7 @@ Each step shows its ordinal, elapsed time, action, page/app, and screenshot thum
 
 - **✕** delete a noise step (ordinals renumber)
 - **🖼✕** remove just the screenshot (keeps the semantic step)
+- **⚙** (input/select steps) mark the value as a **run-time parameter** — for inputs that change every run, like the affected user in a JML process. Name it (`EMPLOYEE_ID`) and it becomes an `<EMPLOYEE_ID>` placeholder with an Inputs list in generated SOPs, and a mandatory named parameter in every generated script. Also editable later on saved recordings in the Library.
 - Click a thumbnail to view it full-size
 
 The **note field** under each step is the highest-leverage input you have: notes are passed to the model as *authoritative context*. One sentence on a cryptic step ("this approves the wire batch") beats regenerating twice.
@@ -57,11 +58,13 @@ The **note field** under each step is the highest-leverage input you have: notes
 1. Pick the output type above the Generate button:
    - **SOP document (Markdown)** — Purpose / Scope / Prerequisites / Procedure / Notes, with screenshots placed per step
    - **PowerShell automation (.ps1)** — Selenium for web steps, `System.Windows.Automation` for UIA steps, using the captured anchors verbatim; masked values become `param()` parameters
+   - **PowerShell web — HTTP only (.ps1)** — no browser at all: replays the **HTTP log** captured while you recorded (the page's real form posts and API calls, values masked) using only `Invoke-WebRequest`/`Invoke-RestMethod`, with cookie-session continuity and CSRF-token extraction. Ideal for headless servers where Selenium/Playwright can't run
    - **Playwright script (.spec.js)** — a runnable Node script replaying the procedure through a fallback chain of the recorded anchors; masked values come from `PT_*` environment variables
    - **Playwright regression test (.spec.js)** — a **read-only** `@playwright/test` spec that asserts every recorded anchor still resolves: Verify Mode as a CI job
    - **Automation Anywhere build sheet** — an A360 assembly document quoting the captured object properties per action
 2. Optionally add context (purpose, audience, system name) — it shapes the Title/Purpose/Scope sections.
-3. Click **Generate**. One API call; typical drafts return in seconds.
+3. For script targets, **🔐 Credentials via Delinea Secret Server** makes the generated script source every credential from your on-prem Secret Server at runtime (module-free REST helpers, `-AuthMethod windows|token`, one `-<Name>SecretId` per credential — nothing prompted or hard-coded). For service-account **password changes**, the script generates the new password locally, applies the recorded change, verifies it, and only then writes it back to Secret Server — failing loudly if target and vault end up out of sync.
+4. Click **Generate**. One API call; typical drafts return in seconds.
 
 What leaves the machine per target is detailed in [DESIGN.md §6](DESIGN.md#6-privacy--security-model); automation targets are always text-only. For a zero-cost, fully local provider setup (Ollama + Gemma 4 12B QAT), see [INSTALL.md §2 — Fully local setup](INSTALL.md#fully-local-setup-free-models).
 

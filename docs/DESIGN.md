@@ -145,6 +145,7 @@ Providers: Anthropic (/v1/messages with direct-browser-access header), OpenAI (/
 | Window-capture frames | Attached at generation | By design: the frame is the step's only meaning. With caption-on-capture (opt-in) each frame is sent once at capture time instead; its caption travels as text at generation |
 | Typed values | Masked | Operator opt-in; secret-like fields stay masked regardless |
 | RPA generation | Always text-only | None - anchors are the payload, never pixels |
+| HTTP log (recording only) | Form/JSON values masked; secret-like query params scrubbed; sent only with the psweb target | Operator enables "Record typed values" (secret-like keys stay masked) |
 
 Additional properties: no external CDN or third-party scripts; capture is inert unless recording is on; the UIA companion is per-user (HKCU), launched only by Chrome/Edge native messaging with the extension's ID pinned in allowed_origins, and exits when the extension disconnects.
 
@@ -171,6 +172,14 @@ Four features added after 1.0, all built on the same premise: every recorded ste
 **Recording diff (`diff.js`, `PTCommon.diffSteps`).** LCS alignment of two recordings' ledgers on `type|kind|label` keys; gap pairs with matching type+kind and ≥ 0.3 token overlap classify as *relabeled*; unchanged pairs flag page/value/anchor changes. The report renders and exports locally; an optional LLM change-management summary sends only step text (never anchors or values) and is covered by the privacy audit like every other target.
 
 **Voice narration.** A 🎤 toggle records mic audio in the panel (MediaRecorder, webm/opus) and transcribes it through a user-configured OpenAI-compatible `/v1/audio/transcriptions` endpoint (`verbose_json` required). Segments attach to steps by timestamp (`PTCommon.mapNarration`: latest step whose ts ≤ segment end). **Raw audio is never persisted** — it lives in the panel until transcribed and dies with it; only transcript text becomes data (`step.narration`), flows into generation as spoken operator intent, and is called out explicitly in the audit. A `mic.html` helper tab handles the side panel's inability to show the permission prompt.
+
+### v1.4 additions: parameters, HTTP capture, Delinea mode
+
+**Run-time parameters.** Input/select steps can be marked (⚙) with a parameter name (`step.param`). SOPs render `<NAME>` placeholders plus an Inputs list (prompt rule 10); automation logs carry `param_name`, which every script prompt turns into a mandatory named parameter with recorded values demoted to sample comments. Built for JML-style procedures whose subjects change per run.
+
+**HTTP capture + `psweb` target.** While recording, an observational `webRequest` listener logs the page's document/XHR/fetch requests — method, scrubbed URL, form/JSON key structure with values masked under the standard rules, status — capped at 300, extension-initiated calls excluded via `tabId >= 0`. The log rides with the session and saved recordings and feeds the `psweb` target: a browser-less PowerShell script using only `Invoke-WebRequest`/`Invoke-RestMethod` (session-cookie continuity, CSRF extraction from preceding GETs, logged statuses asserted).
+
+**Delinea Secret Server mode.** A 🔐 checkbox on script targets appends per-language rules to the system prompt: module-free SS REST helpers (`-AuthMethod windows|token`), one `-<Name>SecretId` parameter per credential, credentials resolved only at runtime, and the service-account rotation pattern — generate locally, change target, verify, write back to SS, loud out-of-sync failure. The audit renders the exact modified prompt.
 
 ### v1.3 addition: caption-on-capture
 

@@ -157,13 +157,15 @@ const steps = [
   { n: 2, label: "Password", masked: true, hasShot: true },
   { n: 3, label: "Sign in", masked: false, narration: "click it" },
   { n: 4, type: "desktop", hasShot: true, caption: "Click Save in the Orders window" },
-  { n: 5, type: "click", caption: "should not count — not a desktop step" }
+  { n: 5, type: "click", caption: "should not count — not a desktop step" },
+  { n: 6, type: "input", label: "Employee ID", param: "EMPLOYEE_ID" }
 ];
 eq("auditStats masked steps", PTCommon.auditStats(steps).maskedSteps, [{ n: 2, label: "Password" }]);
 eq("auditStats shot steps (inline + IDB)", PTCommon.auditStats(steps).shotSteps, [1, 2, 4]);
 eq("auditStats narrated steps", PTCommon.auditStats(steps).narratedSteps, [3]);
 eq("auditStats captioned desktop steps only", PTCommon.auditStats(steps).captionedSteps, [4]);
-eq("auditStats step count", PTCommon.auditStats(steps).stepCount, 5);
+eq("auditStats run-time parameters", PTCommon.auditStats(steps).paramSteps, [{ n: 6, param: "EMPLOYEE_ID" }]);
+eq("auditStats step count", PTCommon.auditStats(steps).stepCount, 6);
 
 const h = document.createElement("h1");
 h.className = failed ? "fail" : "pass";

@@ -24,7 +24,9 @@ Paper Trail loads as an unpacked extension (Chrome or Edge, v116+):
 | `tabs`, `activeTab` | Screenshots of the active tab (`captureVisibleTab`), navigation steps |
 | `storage`, `unlimitedStorage` | Session ledger and settings, kept on-device |
 | `sidePanel`, `commands` | The recorder UI and keyboard shortcuts |
-| `nativeMessaging` | Talking to the optional UIA companion |
+| `nativeMessaging` | Talking to the UIA companion |
+| `webNavigation` | Enumerating frames for Verify/Walkthrough probing |
+| `webRequest` | Observing the page's own requests **while recording only** — the HTTP log behind the pure-HTTP PowerShell target (values masked; the extension's own calls excluded) |
 
 Nothing is sent anywhere except your configured model endpoint, and only when you click **Generate** (see [DESIGN.md §6](DESIGN.md#6-privacy--security-model)).
 

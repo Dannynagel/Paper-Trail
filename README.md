@@ -28,7 +28,9 @@ Clicks & fields (DOM / UIA)  ──►  Semantic step ledger  ──►  LLM  �
 | **✓ Verify** | Replays anchors read-only against the live UI; traffic-light drift report with one-click selector repair |
 | **▶ Walkthrough** | The SOP as a live guide: highlights each step on the real page, auto-advances when you perform it |
 | **⇄ Diff** | Compare two recordings of one procedure: unchanged / relabeled / added / removed, plus an optional LLM change-management summary |
-| **Generate** | SOP (Markdown/HTML), PowerShell (Selenium+UIA), Playwright script, read-only Playwright regression test, Automation Anywhere build sheet |
+| **Generate** | SOP (Markdown/HTML), PowerShell (Selenium+UIA), pure-HTTP PowerShell (`Invoke-WebRequest`/`Invoke-RestMethod` replaying the captured request log), Playwright script, read-only Playwright regression test, Automation Anywhere build sheet |
+| **Run-time parameters** | Mark per-run inputs (JML-style) on any step: `<NAME>` placeholders + Inputs list in SOPs, mandatory named parameters in scripts |
+| **🔐 Delinea Secret Server** | Generated scripts source credentials from on-prem SS at runtime (windows/token auth) and follow the rotate-verify-write-back pattern for service-account password changes |
 | **🔍 Privacy Audit** | The exact request body that would be sent — images redacted to size placeholders, credentials excluded — exportable for compliance sign-off |
 
 **Providers:** Anthropic · OpenAI · any OpenAI-compatible URL — including fully local **Ollama / LM Studio** (default local model: `gemma4:12b-it-qat`) with a local Whisper server for narration. See [INSTALL.md — fully local setup](docs/INSTALL.md#fully-local-setup-free-models).
