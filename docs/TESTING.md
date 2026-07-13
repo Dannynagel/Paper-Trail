@@ -122,9 +122,11 @@ Pure logic (`tests.html`): `parseCsv` (quoted/escaped/CRLF/multi-line/ragged),
 
 The alpha test harness (`alpha-test/smoke.js`) covers the full happy paths
 (autopilot free-run and per-step confirm, masked-value human gate, anchors-only
-stop, evidence records and export, CSV validation and Run-all-rows,
-`sentinelRunNow`, variant tagging and `generateBranch` payload, `.ptpack`
-round-trip, `redactBlob` + brush apply).
+stop, new-tab follow, evidence records and export, CSV validation and
+Run-all-rows, `sentinelRunNow`, variant tagging and `generateBranch` payload,
+`.ptpack` round-trip, `redactBlob` + brush apply) plus the 1.5.1 regression
+checks (import id-reminting, wrong-tab evidence refusal, walkthrough-evidence
+ordering, sentinel guards, durable drift badge).
 Manual integration paths worth walking against real sites:
 
 1. **Autopilot on a real SPA** (React/Vue app): free-run a saved recording;

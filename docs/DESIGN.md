@@ -1,8 +1,8 @@
 # Paper Trail — Design Document
 
-**Version 1.5.0 · Chrome Extension (Manifest V3) + Windows UIA companion (recommended for desktop capture)**
+**Version 1.5.1 · Chrome Extension (Manifest V3) + Windows UIA companion (recommended for desktop capture)**
 
-Paper Trail converts a live browser or desktop session into (a) an illustrated Standard Operating Procedure and (b) optionally, an RPA artifact — by capturing *semantic* actions rather than video.
+Paper Trail converts a live browser or desktop session into (a) an illustrated Standard Operating Procedure and (b) optionally, an RPA artifact — by capturing *semantic* actions rather than video. Since v1.5 the same recorded anchors also *execute*: a saved recording can be run back attended (Autopilot) with a local evidence trail, and watched for UI drift on a schedule.
 
 ---
 
@@ -40,16 +40,21 @@ No server, no build step, no frameworks, no CDN. The extension is the entire pro
 ```
 +------------------------- Chrome ---------------------------+
 |                                                             |
-|  content.js (all frames)      sidepanel.js                  |
-|  - capture-phase listeners    - step ledger UI              |
-|  - label + selector extract   - window-capture engine       |
-|  - ripple feedback            - generation / export         |
-|          |                    - markdown renderer           |
+|  content.js (all frames)      sidepanel.js + feature        |
+|  - capture-phase listeners      modules (library, verify,   |
+|  - label + selector extract     walkthrough, autopilot,     |
+|  - ripple feedback              diff, redact — one global   |
+|  - resolveStep + overlay        scope, optional-global      |
+|  - execStep (Autopilot)         hooks)                      |
+|          |                    - step ledger UI              |
+|          |                    - window-capture engine       |
+|          |                    - generation / export         |
 |          v runtime messages          ^                      |
 |  background.js (service worker) -----+                      |
 |  - session state (storage.session)                          |
 |  - captureVisibleTab + OffscreenCanvas annotation           |
 |  - LLM clients (Anthropic / OpenAI / custom)                |
+|  - drift sentinel (alarms + notifications)                  |
 |  - native messaging port <--------------+                   |
 +------------------------------------------|------------------+
                                            | stdio (4-byte LE + JSON)
@@ -70,11 +75,13 @@ Every capture path produces the same step shape, so the ledger, generator, and e
   text,                      // humanized action; element labels wrapped in ** **
   label, kind,               // accessible name + role/control type
   value, masked,             // field value (empty when masked)
-  selector,                  // web: verified CSS selector (RPA anchor)
+  selector, anchors,         // web: primary CSS selector + alternate anchors (testAttr/id/attr/css)
   autoId, className, app,    // desktop-uia: UIA anchors + process name
   url, pageTitle,            // provenance
   note,                      // operator annotation (authoritative for generation)
-  shot                       // JPEG data URL, local-only by default
+  narration, caption,        // spoken transcript (v1.2) · vision caption for desktop frames (v1.3)
+  param,                     // run-time parameter name (v1.4), e.g. "EMPLOYEE_ID"
+  hasShot                    // screenshot lives in IndexedDB (shots store), local-only by default
 }
 ```
 

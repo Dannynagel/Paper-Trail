@@ -1,4 +1,4 @@
-> **Status: IMPLEMENTED — shipped as v1.5.0.** All seven features below (plus the release steps) landed on `main`; see `CHANGELOG.md` § 1.5.0 for what shipped and `docs/DESIGN.md` "v1.5 additions" for how. The automated harness this brief references now lives in `test/`. Kept for historical reference only.
+> **Status: IMPLEMENTED — shipped as v1.5.0** (bug-fix follow-up in 1.5.1). All seven features below (plus the release steps) landed on `main`; see `CHANGELOG.md` for what shipped and `docs/DESIGN.md` "v1.5 additions" for how. The automated harness this brief references now lives in `alpha-test/`. Kept for historical reference only.
 
 # Paper Trail v1.5 — Implementation Brief
 

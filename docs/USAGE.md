@@ -1,6 +1,6 @@
 # Paper Trail — Usage Guide
 
-From a live session to an illustrated SOP (or a runnable automation) in five steps: record → review → annotate → generate → export. Saved recordings then keep working for you: verify their anchors against the live UI, walk someone through them live, or diff two versions for change management (§5).
+From a live session to an illustrated SOP (or a runnable automation) in five steps: record → review → annotate → generate → export. Saved recordings then keep working for you: verify their anchors against the live UI, walk someone through them live, diff two versions for change management (§5) — or let the extension **run the procedure itself** with evidence of every step (§7), watch it for UI drift on a schedule (§9), and share it with another profile as a `.ptpack` (§10).
 
 ---
 
@@ -92,16 +92,16 @@ Each library entry offers:
 
 | Action | What it does |
 |---|---|
-| **Open** | Read-only view of the saved steps, screenshots, narration — plus the runs table and evidence runs (§9) |
-| **⚡ Run** | Autopilot: the extension performs the steps itself — see §9 |
+| **Open** | Read-only view of the saved steps, screenshots, narration — plus the runs table and evidence runs (§7) |
+| **⚡ Run** | Autopilot: the extension performs the steps itself — see §7 |
 | **▶ Walk** | Guided walkthrough — see below |
 | **✓ Verify** | Anchor health check — see below |
 | **Re-gen** | Sets the recording as the generation source (the Generate section shows `SOURCE ►`); pick a target and generate as usual |
 | **⇄ Compare** | Diff against another recording: click ⇄ on the first, then on the second — see below |
-| **⑂ Variant / ⑂ SOP** | Tag as a variant of a trunk procedure / generate one branch-aware SOP — see §10 |
-| **⏰** | Drift sentinel: re-verify anchors daily and alert on new problems — see §11 |
+| **⑂ Variant / ⑂ SOP** | Tag as a variant of a trunk procedure / generate one branch-aware SOP — see §8 |
+| **⏰** | Drift sentinel: re-verify anchors daily and alert on new problems — see §9 |
 | **Audit** | Privacy audit of exactly what generation would send — see §6 |
-| **⬇ / ⬆ Import .ptpack** | Share the recording (steps + screenshots) with another profile — see §12 |
+| **⬇ / ⬆ Import .ptpack** | Share the recording (steps + screenshots) with another profile — see §10 |
 | **Rename / ✕** | Housekeeping |
 
 **✓ Verify — catch stale SOPs before your users do.** Verify opens a tab, walks the recording's pages, and probes every anchor read-only (nothing is clicked or typed). Each step gets a traffic light: healthy · drifted (the label found the element but the selector changed — with a suggested repair you can apply in one click) · missing · unreachable. The result is stamped on the library entry, so you can see at a glance which SOPs still match the live UI.
@@ -120,7 +120,7 @@ Verify, Walk, and Run cover browser steps; recording, verifying, walking, and au
 
 ---
 
-## 9. Autopilot — the recording runs itself (v1.5)
+## 7. Autopilot — the recording runs itself (v1.5)
 
 **⚡ Run** on a library entry executes the recorded steps in a live tab, attended. Two safety rules are absolute:
 
@@ -135,21 +135,21 @@ Before starting you fill in any **run-time parameters** (values stay in the pane
 
 **Runs table (CSV).** If the recording has parameters, its detail view shows a runs table: download the CSV template (columns = your parameter names), fill one row per case, paste it back — headers are validated locally. **⚡ Run all rows** chains one autopilot run + one evidence record per row, stopping on failure. When a runs table exists, generated scripts also gain a batch wrapper (`-CsvPath` in PowerShell, `--csv` in Playwright) built from the parameter **names** — the row values themselves are never sent to any model.
 
-## 10. Branch-aware SOPs (v1.5)
+## 8. Branch-aware SOPs (v1.5)
 
 Real procedures fork ("if the joiner is a contractor…"). Record the main path (the **trunk**), then record each alternate path and tag it: **⑂ Variant** on the alternate, then ⑂ on the trunk, then name the path ("Contractor path"). Variants group under their trunk in the Library. **⑂ SOP** on the trunk generates **one** document covering everything: numbered decision points ("If X: continue at step N" — inferred conditions are marked as inferences), labeled branch sub-sequences with explicit rejoin points, and a closing mermaid flowchart. The payload is the trunk's action log plus per-variant `{op, step text}` diff entries computed locally — no variant anchors or values — and it has its own Audit button.
 
-## 11. Drift sentinel — know before your users do (v1.5)
+## 9. Drift sentinel — know before your users do (v1.5)
 
 **⏰** on a library entry re-verifies its anchors every 24 hours (hourly alarm picks up due recordings; nothing runs while you're recording). The check opens an **inactive** tab, probes read-only exactly like ✓ Verify, stamps `lastVerified`, and closes the tab. When a sweep finds **new** problems versus the previous one, you get a desktop notification and a `!` badge on the icon (cleared when you open the Library). A site that stays drifted — or a login wall that keeps grading `unreachable` — alerts once, not hourly. Report-only: the sentinel never clicks, types, or repairs.
 
-## 12. Library packs — share a recording (v1.5)
+## 10. Library packs — share a recording (v1.5)
 
 **⬇** on a row exports a `.ptpack` file: the recording plus its screenshots (as data URLs). **⬆ Import .ptpack** in the Library header restores it in another profile under a fresh id. Local operational state — evidence runs, watch settings, runs-table values, variant links — deliberately never travels. Redact screenshots (🖌) *before* exporting: packs carry whatever the shots store holds.
 
 ---
 
-## 13. Shortcuts
+## 11. Shortcuts
 
 | Keys | Action | Scope |
 |---|---|---|
@@ -161,7 +161,7 @@ Remap at `chrome://extensions/shortcuts`.
 
 ---
 
-## 14. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|

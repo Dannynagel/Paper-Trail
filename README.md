@@ -15,7 +15,7 @@ Clicks & fields (DOM / UIA)  ──►  Semantic step ledger  ──►  LLM  �
 
 - **Semantic capture, not video.** The DOM and the Windows UI Automation tree already know what you clicked. Paper Trail records the element's real name, kind, and *several* replay-grade anchors (test attribute, id, name/aria, CSS path, `AutomationId`) — self-healing when the UI drifts.
 - **The privacy inversion.** By default only the text action log goes to the model; it writes around `{{screenshot_N}}` tokens and the real images are spliced in locally at export. A fully illustrated document from a model that never saw your screen — and a one-click **Privacy Audit** shows the literal request payload to prove it.
-- **A recording is data, not just a document source.** The same anchors that illustrate an SOP can drive automation, be **verified** against the live UI, power a **guided walkthrough**, or be **diffed** against a re-recording for change management.
+- **A recording is data, not just a document source.** The same anchors that illustrate an SOP can drive automation, be **verified** against the live UI, power a **guided walkthrough**, be **diffed** against a re-recording for change management — or be **executed** by the extension itself (⚡ Autopilot), leaving a local evidence trail, while a **drift sentinel** re-checks the anchors on a schedule.
 
 ## Features
 
@@ -45,7 +45,7 @@ Clicks & fields (DOM / UIA)  ──►  Semantic step ledger  ──►  LLM  �
 
 1. `chrome://extensions` → Developer mode → **Load unpacked** → this folder
 2. Side panel → **⚙** → pick a provider (or point Custom at local Ollama), paste a key if needed
-3. **● Start recording**, do the thing, **■ Stop**, **Generate** — then **💾 Save** to keep it in the Library
+3. **● Start recording**, do the thing, **■ Stop**, **Generate** — then **💾 Save** to keep it in the Library, where you can ✓ Verify it, ▶ walk someone through it, or ⚡ Run it back with evidence
 
 Full guides: **[Install](docs/INSTALL.md)** · **[Usage](docs/USAGE.md)** · **[Design](docs/DESIGN.md)** · **[Testing](docs/TESTING.md)** · [v1.5 roadmap (implemented)](docs/archive/ROADMAP-v1.5.md)
 
@@ -64,7 +64,6 @@ native-host/             Windows UIA companion (PowerShell 5.1+, embedded C#)
 docs/                    DESIGN · INSTALL · USAGE · TESTING
 tests.html               Browser-runnable assertions for the pure logic
 alpha-test/              Alpha test harness: headless tests.html runner + two end-to-end smoke suites
-
 ```
 
 ## Security posture (summary)
