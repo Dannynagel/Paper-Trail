@@ -822,7 +822,22 @@ const TARGET_DOC = {
   psweb: "a pure-HTTP PowerShell script (Invoke-WebRequest / Invoke-RestMethod)"
 };
 
-const SS_RULES = {}; // populated below (Delinea Secret Server mode)
+// Delinea Secret Server (on-prem) credential mode — appended to the system
+// prompt when the operator enables the 🔐 checkbox. Same audit-by-construction
+// guarantee: the audit shows the exact modified prompt.
+const SS_RULES_PS = `ADDITIONAL REQUIREMENT — Delinea Secret Server (on-prem) credential sourcing:
+A. Include a Secret Server helper block built ONLY on Invoke-RestMethod (no Thycotic module dependency):
+   - Get-SSAuth -SecretServerUrl -AuthMethod: "windows" uses -UseDefaultCredentials on every SS call (IWA); "token" performs the OAuth2 password grant (POST <url>/oauth2/token, grant_type=password) using a -SSApiCredential PSCredential parameter and returns a Bearer header. Default -AuthMethod to "windows".
+   - Get-SSSecret (GET <url>/api/v1/secrets/{id}), Get-SSSecretField (returns a named field's value from the items array by slug), Set-SSSecretField (PUT <url>/api/v1/secrets/{id}/fields/{slug}).
+B. Parameters: -SecretServerUrl (mandatory), -AuthMethod, plus one mandatory -<Name>SecretId [int] per credential the procedure uses (derive <Name> from the step label or param_name). Every masked/credential value MUST be resolved from Secret Server at runtime via those IDs — never prompted, never hard-coded, never echoed to output or logs.
+C. If the procedure changes a service-account password (evident from the steps or the operator context): generate the new password locally with a New-RandomPassword helper (length/complexity parameters, cryptographic RNG), perform the recorded change against the target system using it, VERIFY success, and only then write it back with Set-SSSecretField to the same secret's password field. If the write-back fails, fail loudly and explicitly state that the target system and Secret Server are now OUT OF SYNC and the new password exists only in this session — but never print the password itself.`;
+
+const SS_RULES_NODE = `ADDITIONAL REQUIREMENT — Delinea Secret Server (on-prem) credential sourcing:
+A. Include a Secret Server helper block built on Node's fetch: ssAuth(url, method) supporting "token" (OAuth2 password grant to <url>/oauth2/token with SS_API_USER/SS_API_PASSWORD env vars) — note in a comment that Windows integrated auth is not natively available from Node and "token" is the practical method here; ssGetSecret(id), ssGetField(secret, slug), ssSetField(id, slug, value) against <url>/api/v1/secrets.
+B. Required env vars: SS_URL plus one <NAME>_SECRET_ID per credential (derive <NAME> from the step label or param_name). Every masked/credential value MUST resolve from Secret Server at runtime — never hard-coded, never logged.
+C. If the procedure changes a service-account password: generate it locally (crypto.randomBytes-based helper), apply the recorded change, verify, then ssSetField the new value back; on write-back failure, exit loudly stating target and Secret Server are OUT OF SYNC — without printing the password.`;
+
+const SS_RULES = { powershell: SS_RULES_PS, psweb: SS_RULES_PS, playwright: SS_RULES_NODE };
 
 // Build-only counterpart for automation targets. Text-only by design:
 // anchors are the payload, never pixels.
@@ -1021,6 +1036,7 @@ async function buildAudit(target, userContext, recordingId, recordingIdB, extras
     provider: st.provider,
     model: st.model,
     endpoint: endpointFor(st) || "(no custom endpoint configured)",
+    secretServer: !!extras.secretServer,
     includeScreenshots: !!st.includeScreenshots,
     stepCount: stats.stepCount,
     shotsCaptured: stats.shotSteps,             // step numbers that have a local screenshot

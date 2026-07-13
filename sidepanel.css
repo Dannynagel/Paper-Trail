@@ -168,6 +168,13 @@ textarea#context, select#genTarget {
   font: 12px var(--sans); resize: vertical;
 }
 
+.ss-row {
+  display: flex; align-items: center; gap: 7px;
+  font: 600 11.5px var(--sans); color: var(--text);
+  padding: 2px 2px; cursor: pointer;
+}
+.ss-row input { accent-color: var(--accent); }
+
 .result { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .result-bar {
   display: flex; align-items: center; justify-content: space-between;

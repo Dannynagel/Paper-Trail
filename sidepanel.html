@@ -60,6 +60,9 @@
       <option value="aa">Automation Anywhere build sheet</option>
     </select>
     <textarea id="context" rows="2" placeholder="Optional context: purpose, audience, system name…"></textarea>
+    <label id="ssRow" class="ss-row" hidden title="Generated script sources every credential from Delinea Secret Server (on-prem REST API) and, for password changes, writes the rotated password back">
+      <input type="checkbox" id="useSS"> 🔐 Credentials via Delinea Secret Server
+    </label>
     <button id="btnGenerate" class="primary wide">Generate SOP</button>
     <button id="btnAudit" class="ghost wide" title="Build the exact request locally — nothing is sent anywhere">🔍 Preview what will be sent</button>
     <div id="genStatus" class="status" hidden></div>

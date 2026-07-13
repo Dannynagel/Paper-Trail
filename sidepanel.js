@@ -550,8 +550,17 @@ const GEN_LABELS = {
   aa: "Generate AA build sheet"
 };
 
+// Targets whose scripts can source credentials from Delinea Secret Server.
+const SS_TARGETS = ["powershell", "psweb", "playwright"];
+
+function useSecretServer() {
+  return SS_TARGETS.includes($("genTarget").value) && $("useSS").checked;
+}
+
 $("genTarget").addEventListener("change", () => {
-  $("btnGenerate").textContent = GEN_LABELS[$("genTarget").value] || "Generate";
+  const t = $("genTarget").value;
+  $("btnGenerate").textContent = GEN_LABELS[t] || "Generate";
+  $("ssRow").hidden = !SS_TARGETS.includes(t);
 });
 
 $("btnGenerate").addEventListener("click", async () => {
@@ -565,6 +574,7 @@ $("btnGenerate").addEventListener("click", async () => {
     cmd: "generate",
     context: $("context").value.trim(),
     target,
+    secretServer: useSecretServer(),
     recordingId: activeRecording ? activeRecording.id : undefined
   });
   btn.disabled = false;
@@ -636,6 +646,7 @@ async function startAudit(recordingId) {
     cmd: "auditPayload",
     target: $("genTarget").value,
     context: $("context").value.trim(),
+    secretServer: useSecretServer(),
     recordingId
   });
   if (!resp || !resp.ok) {
@@ -678,7 +689,8 @@ Built locally on ${new Date(a.generatedAt).toLocaleString()}. Producing this aud
 - Output type: ${targetName}
 - Provider: ${a.provider}
 - Model: ${a.model}
-- Endpoint: ${a.endpoint}
+- Endpoint: ${a.endpoint}${a.secretServer ? `
+- Credential mode: Delinea Secret Server — the script sources credentials from SS at runtime; no credential values appear in this payload` : ""}
 
 ## Screenshots
 
