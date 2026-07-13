@@ -44,6 +44,10 @@
   </div>
 
   <div id="tab-library" hidden>
+    <div class="lib-actions" style="padding:6px 10px 0">
+      <button id="btnImportPack" class="ghost" title="Import a .ptpack exported from another browser profile">⬆ Import .ptpack</button>
+      <input type="file" id="libImportFile" accept=".ptpack,.json,application/json" hidden>
+    </div>
     <div id="libStatus" class="status">Library — saved recordings live in this browser profile only.</div>
     <section id="libList" class="steps"></section>
     <section id="libDetail" class="lib-detail" hidden></section>

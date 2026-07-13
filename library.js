@@ -79,6 +79,7 @@ function libRowHtml(r, caps, isVariant, variantCount) {
             r.watch ? ` class="active"` : ""}>⏰${r.watch ? " on" : ""}</button>
           ${caps.audit ? `<button data-act="audit" title="Preview exactly what would be sent to the model">Audit</button>` : ""}
           <button data-act="rename">Rename</button>
+          <button data-act="export" title="Export as a shareable .ptpack (recording + screenshots; runs and watch stay local)">⬇</button>
           <button data-act="del" class="danger" title="Delete recording">✕</button>
         </div>
       </div>
@@ -444,6 +445,70 @@ $("libList").addEventListener("click", async (e) => {
     case "branch":
       renderBranchPane(id);
       break;
+    case "export": {
+      const pack = await buildPack(id);
+      if (!pack) break;
+      const stem = pack.rec.title.replace(/[^\w\- ]/g, "").trim().replace(/\s+/g, "_").slice(0, 60) || "recording";
+      download(`${stem}.ptpack`, JSON.stringify(pack), "application/json");
+      break;
+    }
+  }
+});
+
+// ── Library packs (.ptpack) — share a recording between profiles ───────────
+// The pack carries the recording and its screenshots. Runs, watch state, and
+// the runs-table values are local operational state and never travel; variant
+// links are dropped because recording ids don't survive across profiles.
+async function buildPack(recId) {
+  const rec = await PTDB.getRecording(recId);
+  if (!rec) return null;
+  const copy = JSON.parse(JSON.stringify(rec));
+  delete copy.watch;
+  delete copy.paramSets;
+  delete copy.variantOf;
+  delete copy.variantLabel;
+  const shots = await PTDB.getShotsByRec(recId);
+  const packed = [];
+  for (const s of shots) {
+    packed.push({ stepId: s.stepId, b64: await PTCommon.blobToDataUrl(s.blob) });
+  }
+  return { format: "ptpack/1", rec: copy, shots: packed };
+}
+
+async function importPack(pack) {
+  if (!pack || pack.format !== "ptpack/1" || !pack.rec ||
+      !Array.isArray(pack.rec.steps) || typeof pack.rec.title !== "string") {
+    throw new Error("not a valid .ptpack file");
+  }
+  const rec = pack.rec;
+  rec.id = crypto.randomUUID(); // fresh identity here; step UUIDs are kept
+  delete rec.watch;
+  delete rec.paramSets;
+  delete rec.variantOf;
+  delete rec.variantLabel;
+  rec.updatedAt = Date.now();
+  for (const s of pack.shots || []) {
+    if (!s || !s.stepId || typeof s.b64 !== "string" || !/^data:image\//.test(s.b64)) continue;
+    const blob = await (await fetch(s.b64)).blob();
+    await PTDB.putShot({ stepId: s.stepId, recId: rec.id, blob });
+  }
+  await PTDB.saveRecording(rec);
+  return rec.id;
+}
+
+$("btnImportPack").addEventListener("click", () => $("libImportFile").click());
+$("libImportFile").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = ""; // allow re-picking the same file
+  if (!file) return;
+  const ls = $("libStatus");
+  try {
+    const pack = JSON.parse(await file.text());
+    await importPack(pack);
+    ls.textContent = `Imported ✓ — “${pack.rec.title}”`;
+    renderLibrary();
+  } catch (err) {
+    ls.textContent = "Import failed: " + String(err.message || err);
   }
 });
 
