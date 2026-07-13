@@ -72,10 +72,11 @@ function render() {
 
   const st = $("status");
   st.className = "status" + (s.recording ? " rec" : "");
+  const httpNote = (s.http && s.http.length) ? ` · ${s.http.length} HTTP` : "";
   st.textContent = s.recording
-    ? `REC — ${s.steps.length} step${s.steps.length === 1 ? "" : "s"} captured`
+    ? `REC — ${s.steps.length} step${s.steps.length === 1 ? "" : "s"} captured${httpNote}`
     : s.steps.length
-      ? `Stopped — ${s.steps.length} steps ready`
+      ? `Stopped — ${s.steps.length} steps ready${httpNote}`
       : "Idle — nothing recorded";
 
   // Ledger
@@ -166,6 +167,8 @@ $("btnSave").addEventListener("click", async () => {
     urlHosts: [...new Set(steps.map(s => PTCommon.urlHost(s.url)).filter(Boolean))].slice(0, 5),
     source: steps.every(s => s.type === "uia" || s.type === "desktop") ? "desktop"
           : steps.some(s => s.type === "uia" || s.type === "desktop") ? "mixed" : "web",
+    http: currentSession.http || [],
+    httpCount: (currentSession.http || []).length,
     steps: steps.map(s => {
       const copy = Object.assign({}, s, { shot: null, hasShot: !!(s.shot || s.hasShot) });
       return copy;
@@ -533,6 +536,7 @@ let currentTarget = "sop";
 // Script-producing targets: raw text preview, single script download button.
 const SCRIPT_TARGETS = {
   powershell: { ext: ".ps1", bar: "PowerShell draft", title: "Automation_Script" },
+  psweb: { ext: ".ps1", bar: "PowerShell HTTP draft", title: "HTTP_Automation" },
   playwright: { ext: ".spec.js", bar: "Playwright script", title: "Playwright_Script" },
   pwtest: { ext: ".spec.js", bar: "Playwright test", title: "Playwright_Test" }
 };
@@ -540,6 +544,7 @@ const SCRIPT_TARGETS = {
 const GEN_LABELS = {
   sop: "Generate SOP",
   powershell: "Generate PowerShell script",
+  psweb: "Generate HTTP PowerShell",
   playwright: "Generate Playwright script",
   pwtest: "Generate Playwright test",
   aa: "Generate AA build sheet"
@@ -659,6 +664,7 @@ function auditMarkdown(a) {
     powershell: "PowerShell automation",
     playwright: "Playwright automation script",
     pwtest: "Playwright regression test",
+    psweb: "Pure-HTTP PowerShell (Invoke-WebRequest / Invoke-RestMethod)",
     aa: "Automation Anywhere build sheet",
     diff: "Change-management summary (recording diff)"
   }[a.target] || a.target;

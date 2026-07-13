@@ -296,6 +296,84 @@ async function addUiaStep(m) {
   }
 }
 
+// ── HTTP capture (observational webRequest; recording only) ────────────────
+// While recording, log the page's own document/XHR/fetch requests — the
+// ground truth the psweb (Invoke-WebRequest/Invoke-RestMethod) target replays.
+// tabId >= 0 excludes the extension's own LLM/transcription calls. Values are
+// masked under the same rules as typed values; secret-like keys always.
+const HTTP_CAP = 300;
+const HTTP_SECRETY = /pass|secret|token|key|ssn|card|auth|pwd|credential|session/i;
+const pendingHttp = new Map(); // requestId -> live entry (best-effort status fill-in)
+
+function httpMaskForm(formData, captureValues) {
+  const out = {};
+  for (const [k, vals] of Object.entries(formData || {})) {
+    out[k] = (captureValues && !HTTP_SECRETY.test(k))
+      ? String((vals && vals[0]) || "").slice(0, 120)
+      : "[masked]";
+  }
+  return out;
+}
+
+function httpMaskJson(value, captureValues, depth = 0) {
+  if (depth > 4) return "[…]";
+  if (Array.isArray(value)) return value.slice(0, 5).map(v => httpMaskJson(v, captureValues, depth + 1));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value).slice(0, 30)) {
+      out[k] = (v && typeof v === "object")
+        ? httpMaskJson(v, captureValues, depth + 1)
+        : ((captureValues && !HTTP_SECRETY.test(k)) ? String(v).slice(0, 120) : "[masked]");
+    }
+    return out;
+  }
+  return captureValues ? String(value).slice(0, 120) : "[masked]";
+}
+
+function httpScrubUrl(u) {
+  try {
+    const url = new URL(u);
+    for (const k of [...url.searchParams.keys()]) {
+      if (HTTP_SECRETY.test(k)) url.searchParams.set(k, "masked");
+    }
+    return url.href;
+  } catch (e) { return u; }
+}
+
+chrome.webRequest.onBeforeRequest.addListener(async (d) => {
+  await hydrate();
+  if (!session.recording || d.tabId < 0) return;
+  if (!Array.isArray(session.http)) session.http = [];
+  if (session.http.length >= HTTP_CAP) return;
+
+  const st = await getSettings();
+  const entry = { ts: Date.now(), method: d.method, url: httpScrubUrl(d.url), type: d.type };
+  if (d.requestBody) {
+    if (d.requestBody.formData) {
+      entry.form = httpMaskForm(d.requestBody.formData, st.captureValues);
+    } else if (d.requestBody.raw && d.requestBody.raw[0] && d.requestBody.raw[0].bytes &&
+               d.requestBody.raw[0].bytes.byteLength <= 8192) {
+      try {
+        entry.json = httpMaskJson(JSON.parse(new TextDecoder().decode(d.requestBody.raw[0].bytes)), st.captureValues);
+      } catch (e) { entry.body = "(non-JSON body omitted)"; }
+    }
+  }
+  pendingHttp.set(d.requestId, entry);
+  session.http.push(entry);
+  await persist();
+}, { urls: ["http://*/*", "https://*/*"], types: ["main_frame", "sub_frame", "xmlhttprequest"] }, ["requestBody"]);
+
+chrome.webRequest.onCompleted.addListener(async (d) => {
+  const entry = pendingHttp.get(d.requestId);
+  pendingHttp.delete(d.requestId);
+  if (!entry) return;
+  entry.status = d.statusCode;
+  const ct = (d.responseHeaders || []).find(h => h.name.toLowerCase() === "content-type");
+  if (ct) entry.contentType = String(ct.value || "").split(";")[0];
+  await hydrate();
+  await persist();
+}, { urls: ["http://*/*", "https://*/*"], types: ["main_frame", "sub_frame", "xmlhttprequest"] }, ["responseHeaders"]);
+
 // Navigation steps via tabs.onUpdated (recording only, http(s) only)
 const recentNavs = new Map();
 chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
@@ -370,7 +448,7 @@ chrome.commands.onCommand.addListener(async (cmd) => {
 
 async function startRecording() {
   await hydrate();
-  session = { recording: true, steps: [], startedAt: Date.now() };
+  session = { recording: true, steps: [], http: [], startedAt: Date.now() };
   await PTDB.deleteShotsByRec(PTDB.LIVE_REC_ID).catch(() => {});
   await persist();
   setBadge(true);
@@ -403,7 +481,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "stop":  await stopRecording();  sendResponse({ ok: true }); break;
       case "getState": sendResponse({ session }); break;
       case "clear":
-        session = { recording: false, steps: [], startedAt: 0 };
+        session = { recording: false, steps: [], http: [], startedAt: 0 };
         await PTDB.deleteShotsByRec(PTDB.LIVE_REC_ID).catch(() => {});
         await persist(); setBadge(false); await broadcastState();
         sendResponse({ ok: true });
@@ -485,10 +563,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "generate": {
         try {
           const target = msg.target || "sop";
-          const steps = await resolveSteps(msg.recordingId);
+          const src = await resolveSource(msg.recordingId);
           const md = target === "sop"
-            ? await generateSOP(steps, msg.context || "")
-            : await generateAutomation(steps, msg.context || "", target);
+            ? await generateSOP(src.steps, msg.context || "")
+            : await generateAutomation(src, msg.context || "", target, { secretServer: !!msg.secretServer });
           sendResponse({ ok: true, markdown: md });
         } catch (e) {
           sendResponse({ ok: false, error: String(e.message || e) });
@@ -497,7 +575,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       case "auditPayload": {
         try {
-          const audit = await buildAudit(msg.target || "sop", msg.context || "", msg.recordingId, msg.recordingIdB);
+          const audit = await buildAudit(msg.target || "sop", msg.context || "", msg.recordingId, msg.recordingIdB,
+            { secretServer: !!msg.secretServer });
           sendResponse({ ok: true, audit });
         } catch (e) {
           sendResponse({ ok: false, error: String(e.message || e) });
@@ -534,12 +613,13 @@ async function shotDataFor(step) {
   return null;
 }
 
-// Steps for generation: the live session, or a saved recording from the library.
-async function resolveSteps(recordingId) {
-  if (!recordingId) return session.steps;
+// Generation source: the live session, or a saved recording from the library.
+// Returns steps plus the captured HTTP log (consumed only by the psweb target).
+async function resolveSource(recordingId) {
+  if (!recordingId) return { steps: session.steps, http: session.http || [] };
   const rec = await PTDB.getRecording(recordingId);
   if (!rec) throw new Error("Recording not found in library.");
-  return rec.steps;
+  return { steps: rec.steps, http: rec.http || [] };
 }
 
 function buildActionLog(steps) {
@@ -716,31 +796,62 @@ Rules:
 7. Keep it runnable as-is with: npx playwright test <file>.`
 };
 
+AUTOMATION_PROMPTS.psweb = `You are an automation engineer converting a recorded web procedure into a production-quality PowerShell 5.1+ script that uses ONLY Invoke-WebRequest and Invoke-RestMethod — no browser, no Selenium, no external modules.
+
+You will receive:
+- A JSON ACTION LOG of the operator's UI steps (intent and ordering; element labels are ground truth for meaning).
+- An HTTP LOG captured during the recording: the real requests the web app made (method, URL, type, form fields or JSON key structure, status). This is the ground truth for what to replay. Masked values appear as "[masked]".
+
+Rules:
+1. Output ONLY the PowerShell script. No markdown fences, no prose outside comments.
+2. Replay the HTTP LOG in order: Invoke-WebRequest with -SessionVariable on the first request and -WebSession thereafter so cookies persist across the whole flow; use Invoke-RestMethod for JSON endpoints, building bodies with ConvertTo-Json to match the logged key structure exactly.
+3. When a POST's fields include hidden or anti-forgery values (__RequestVerificationToken, csrf, __VIEWSTATE and similar), first GET the page, extract the token from the response (.InputFields or the HTML), and send that — never hard-code such values.
+4. Masked values and steps with "param_name" become mandatory param() parameters (use param_name verbatim when present, otherwise derive from the field name). Secrets use [SecureString]/PSCredential with a comment pointing at the org's vault.
+5. Check every response: throw with the step context when the status differs from the logged success status. Use -UseBasicParsing for 5.1 compatibility and set an explicit -UserAgent.
+6. Where a request needs a dynamic value the log cannot supply (server-generated ids, tokens in redirects), extract it from the preceding response when the source is evident; otherwise emit a clearly-marked "# TODO: dynamic value" block. Never invent endpoints or fields not present in the HTTP LOG.
+7. Comment each block with the corresponding UI step number and description; include a Write-StepLog helper and a run summary at the end.
+8. Be conservative: replay exactly what was recorded; no speculative requests.`;
+
+// Delinea Secret Server prompt modifiers (per target language) — filled by the
+// SS checkbox; see SS_RULES definitions below.
 const TARGET_DOC = {
   powershell: "a PowerShell automation script",
   aa: "an Automation Anywhere A360 build sheet",
   playwright: "a Node.js Playwright automation script",
-  pwtest: "a read-only Playwright regression test spec"
+  pwtest: "a read-only Playwright regression test spec",
+  psweb: "a pure-HTTP PowerShell script (Invoke-WebRequest / Invoke-RestMethod)"
 };
+
+const SS_RULES = {}; // populated below (Delinea Secret Server mode)
 
 // Build-only counterpart for automation targets. Text-only by design:
 // anchors are the payload, never pixels.
-function buildAutomationRequest(steps, userContext, target) {
+// extras: { http: [...captured requests], secretServer: bool }
+function buildAutomationRequest(steps, userContext, target, extras = {}) {
   if (!steps.length) throw new Error("No steps recorded yet.");
-  const sys = AUTOMATION_PROMPTS[target];
+  let sys = AUTOMATION_PROMPTS[target];
   if (!sys) throw new Error("Unknown automation target: " + target);
+  if (extras.secretServer && SS_RULES[target]) sys += "\n\n" + SS_RULES[target];
 
   const log = JSON.stringify(buildAutomationLog(steps), null, 1);
   let userText = `Convert this recorded session into ${TARGET_DOC[target]}.\n\nACTION LOG:\n${log}`;
+
+  if (target === "psweb") {
+    const http = extras.http || [];
+    if (!http.length) throw new Error("No HTTP requests were captured for this recording — the HTTP-only target needs a recording made after the HTTP-capture update.");
+    userText += `\n\nHTTP LOG (requests captured during the recording — ground truth to replay):\n${JSON.stringify(http, null, 1)}`;
+  }
+
   if (userContext) userText += `\n\nOPERATOR CONTEXT:\n${userContext}`;
 
   return { system: sys, userText, shots: [] };
 }
 
-async function generateAutomation(steps, userContext, target) {
+async function generateAutomation(src, userContext, target, extras = {}) {
   const st = await getSettings();
   requireEndpoint(st);
-  const req = buildAutomationRequest(steps, userContext, target);
+  const req = buildAutomationRequest(src.steps, userContext, target,
+    Object.assign({ http: src.http }, extras));
   if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
   return callOpenAI(st, req.system, req.userText, req.shots);
 }
@@ -884,7 +995,7 @@ function redactImagesInBody(body) {
   return redacted;
 }
 
-async function buildAudit(target, userContext, recordingId, recordingIdB) {
+async function buildAudit(target, userContext, recordingId, recordingIdB, extras = {}) {
   const st = await getSettings();
   let steps, req;
   if (target === "diff") {
@@ -892,10 +1003,12 @@ async function buildAudit(target, userContext, recordingId, recordingIdB) {
     steps = []; // the diff payload carries step text only — no anchors, values, or shots
     req = buildDiffRequest(recA, recB, entries, userContext);
   } else {
-    steps = await resolveSteps(recordingId);
+    const src = await resolveSource(recordingId);
+    steps = src.steps;
     req = target === "sop"
       ? await buildSopRequest(steps, userContext, st)
-      : buildAutomationRequest(steps, userContext, target);
+      : buildAutomationRequest(steps, userContext, target,
+          Object.assign({ http: src.http }, extras));
   }
   const body = st.provider === "anthropic"
     ? anthropicBody(st, req.system, req.userText, req.shots)

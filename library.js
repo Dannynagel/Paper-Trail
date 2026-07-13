@@ -36,7 +36,8 @@ async function renderLibrary() {
         <div class="action"><b>${esc(r.title)}</b></div>
         <div class="page">${esc(libDate(r.createdAt))}${r.lastVerified
           ? ` · verified ${esc(libDate(r.lastVerified.ts))} — ${esc(r.lastVerified.summary)}` : ""}</div>
-        <div class="page">${(r.urlHosts || []).map(esc).join(" · ") || esc(r.source || "")}</div>
+        <div class="page">${(r.urlHosts || []).map(esc).join(" · ") || esc(r.source || "")}${
+          r.httpCount ? ` · ${r.httpCount} HTTP` : ""}</div>
         <div class="lib-actions">
           <button data-act="open">Open</button>
           ${canWalk ? `<button data-act="walk" title="Guided walkthrough on the live site">▶ Walk</button>` : ""}

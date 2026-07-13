@@ -12,7 +12,8 @@
     "activeTab",
     "commands",
     "nativeMessaging",
-    "webNavigation"
+    "webNavigation",
+    "webRequest"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {
