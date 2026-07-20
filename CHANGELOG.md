@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.0
+
+- **Sign in with your Claude account**: a new provider uses your Claude.ai Pro/Max subscription instead of an API key. OAuth 2.0 Authorization Code + PKCE runs from the options page (approve in a tab, paste the code back); tokens are stored locally and refreshed automatically; requests authenticate with a Bearer token. Requires an OAuth client ID from Anthropic's **Sign in with Claude** program (beta) — your subscription's terms and limits apply.
+- Provider dispatch consolidated (`callModel`), and the Anthropic endpoint became overridable for enterprise gateways and tests. The privacy audit describes the Bearer credential mode.
+
 ## 1.6.0
 
 - **AI integration is now optional.** A 🤖 toggle in the Recorder tab (persisted, default on) turns off every model-touching feature for when an endpoint is unavailable or unwanted: desktop-frame captions and narration are disabled, the AI generation/audit controls hide, and the worker independently refuses any generation request — nothing can leave the machine while it's off.

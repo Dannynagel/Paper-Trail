@@ -139,7 +139,7 @@ The model receives a JSON action log and must obey a strict output discipline en
 - **PowerShell target** - captured selectors/AutomationIds are used verbatim; masked values become param() parameters (secrets as [SecureString]); anchor-less steps become explicit TODO blocks, never invented anchors.
 - **Automation Anywhere target** - a build sheet (A360 bot JSON is not a hand-authoring format) quoting captured object properties verbatim, preferring AutomationId / CSS anchors and never recommending coordinate or image matching when an anchor exists.
 
-Providers: Anthropic (/v1/messages with direct-browser-access header), OpenAI (/v1/chat/completions), or any OpenAI-compatible URL (Open WebUI, Azure OpenAI via Open WebUI, vLLM, LiteLLM). Keys live in chrome.storage.local and are sent only to the configured endpoint.
+Providers: Anthropic (/v1/messages with direct-browser-access header, authenticated by API key **or** the user's Claude account — OAuth Bearer + oauth beta header, v1.7), OpenAI (/v1/chat/completions), or any OpenAI-compatible URL (Open WebUI, Azure OpenAI via Open WebUI, vLLM, LiteLLM). One `callModel()` dispatches; keys and OAuth tokens live in chrome.storage.local and are sent only to the configured endpoint.
 
 ---
 
@@ -199,6 +199,10 @@ Desktop generation was prefill-bound: N window-capture frames made an N-image re
 ### v1.6 addition: AI integration is optional
 
 A persisted `aiEnabled` flag (🤖 toggle in the recorder) gates every model-touching path in BOTH layers: the panel disables narration and hides the AI generation/audit controls, while the worker independently refuses generation (`requireEndpoint`) and skips `captionStep` — belt and braces, so no message path can reach an endpoint while off. `localSopMarkdown()` (panel) assembles a draft directly from the step ledger using the same `{{screenshot_N}}` token contract as model output, so the existing preview/splice/export pipeline serves both. AI-independent features (capture, evidence, verify, walkthrough, autopilot, packs, redaction, sentinel) are untouched by the flag.
+
+### v1.7 addition: Claude account sign-in
+
+The `claude` provider authenticates the same Messages API calls with the user's Claude.ai subscription instead of an API key. The options page owns the OAuth 2.0 Authorization Code + PKCE flow (S256; `PTCommon.randomVerifier`/`pkceChallenge`, verifier held in a transient `claudeOauthPending` key): authorize in a tab, paste back `code#state`, exchange at the token endpoint. The worker holds only `claudeAuth {accessToken, refreshToken, expiresAt}`, refreshes ~60 s before expiry, and reads tokens fresh from storage rather than the settings cache so concurrent refreshes can't serve a stale token. The client ID is a setting — issued by Anthropic's *Sign in with Claude* program (beta) — and the authorize/token/redirect URLs are settings too, which keeps the flow testable (the smoke suite drives refresh and code exchange against a stub token endpoint) and gateway-friendly (`anthropicUrl` override).
 
 ### v1.5 additions: execution, evidence, batches, sentinel, branches, packs, redaction
 

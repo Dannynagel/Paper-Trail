@@ -70,7 +70,7 @@ The **note field** under each step is the highest-leverage input you have: notes
 4. Click **Generate**. One API call; typical drafts return in seconds.
 5. No model, no problem: **📄 Draft SOP without AI** assembles the document locally from the recorded steps — an Inputs list from your run-time parameters (recorded sample values are swapped for `<PLACEHOLDERS>`), numbered steps with notes, narration, and captions, and screenshots spliced in as always. It's available in both modes (it becomes the primary button when 🤖 AI is off) and sends nothing anywhere. Expect a faithful transcript-style document rather than the model's editorial pass (merged steps, inferred prerequisites).
 
-What leaves the machine per target is detailed in [DESIGN.md §6](DESIGN.md#6-privacy--security-model); automation targets are always text-only. For a zero-cost, fully local provider setup (Ollama + Gemma 4 12B QAT), see [INSTALL.md §2 — Fully local setup](INSTALL.md#fully-local-setup-free-models).
+What leaves the machine per target is detailed in [DESIGN.md §6](DESIGN.md#6-privacy--security-model); automation targets are always text-only. No API key? The **Claude account** provider signs in with your Claude.ai subscription instead ([INSTALL.md §2](INSTALL.md#2-configure-a-model-provider)), and the 🤖 toggle plus the local draft cover the no-model case entirely. For a zero-cost, fully local provider setup (Ollama + Gemma 4 12B QAT), see [INSTALL.md §2 — Fully local setup](INSTALL.md#fully-local-setup-free-models).
 
 ## 4. Editing and exporting
 

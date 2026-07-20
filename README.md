@@ -40,7 +40,7 @@ Clicks & fields (DOM / UIA)  ──►  Semantic step ledger  ──►  LLM  �
 | **🔐 Delinea Secret Server** | Generated scripts source credentials from on-prem SS at runtime (windows/token auth) and follow the rotate-verify-write-back pattern for service-account password changes |
 | **🔍 Privacy Audit** | The exact request body that would be sent — images redacted to size placeholders, credentials excluded — exportable for compliance sign-off |
 
-**Providers:** Anthropic · OpenAI · any OpenAI-compatible URL — including fully local **Ollama / LM Studio** (default local model: `gemma4:12b-it-qat`) with a local Whisper server for narration — or **no model at all** (🤖 toggle off: local drafting only). See [INSTALL.md — fully local setup](docs/INSTALL.md#fully-local-setup-free-models).
+**Providers:** Anthropic (API key) · **your Claude account** (Pro/Max subscription via Sign in with Claude, no key) · OpenAI · any OpenAI-compatible URL — including fully local **Ollama / LM Studio** (default local model: `gemma4:12b-it-qat`) with a local Whisper server for narration — or **no model at all** (🤖 toggle off: local drafting only). See [INSTALL.md — fully local setup](docs/INSTALL.md#fully-local-setup-free-models).
 
 ## Quick start
 

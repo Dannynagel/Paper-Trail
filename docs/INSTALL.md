@@ -41,6 +41,7 @@ Open the side panel → **⚙** (or right-click the icon → Options):
 | Provider | Model examples | Auth |
 |---|---|---|
 | **Anthropic** | `claude-sonnet-4-6` (default) | API key from console.anthropic.com |
+| **Claude account** | `claude-sonnet-4-6` (default) | Your Claude.ai Pro/Max subscription via OAuth — press **Sign in with Claude** in options, approve, paste the code back. Needs an OAuth client ID from Anthropic's *Sign in with Claude* program (beta); subscription terms and rate limits apply, and tokens are stored locally and refreshed automatically |
 | **OpenAI** | `gpt-4o` (default) | API key from platform.openai.com |
 | **Custom** (OpenAI-compatible) | Your deployment/model name | Bearer key, sent to *your* URL only |
 
