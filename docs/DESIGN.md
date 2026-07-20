@@ -1,6 +1,6 @@
 # Paper Trail — Design Document
 
-**Version 1.5.1 · Chrome Extension (Manifest V3) + Windows UIA companion (recommended for desktop capture)**
+**Version 1.6.0 · Chrome Extension (Manifest V3) + Windows UIA companion (recommended for desktop capture)**
 
 Paper Trail converts a live browser or desktop session into (a) an illustrated Standard Operating Procedure and (b) optionally, an RPA artifact — by capturing *semantic* actions rather than video. Since v1.5 the same recorded anchors also *execute*: a saved recording can be run back attended (Autopilot) with a local evidence trail, and watched for UI drift on a schedule.
 
@@ -156,6 +156,7 @@ Providers: Anthropic (/v1/messages with direct-browser-access header), OpenAI (/
 | Evidence runs (statuses + screenshots) | Local only — never sent, never exported in packs | - |
 | CSV runs-table values | Local only; generated batch scripts read the file at run time | - (only parameter *names* appear in prompts) |
 | Autopilot parameter values / masked entries | Parameters live in the panel for the run; masked values are typed by the human and never touch the extension | - |
+| Everything, with 🤖 AI features off | Nothing is sent to any model: captions/narration disabled, generation refused worker-side; local no-AI drafting only | Operator turns AI back on |
 
 Additional properties: no external CDN or third-party scripts; capture is inert unless recording is on; the UIA companion is per-user (HKCU), launched only by Chrome/Edge native messaging with the extension's ID pinned in allowed_origins, and exits when the extension disconnects.
 
@@ -194,6 +195,10 @@ Desktop generation was prefill-bound: N window-capture frames made an N-image re
 **HTTP capture + `psweb` target.** While recording, an observational `webRequest` listener logs the page's document/XHR/fetch requests — method, scrubbed URL, form/JSON key structure with values masked under the standard rules, status — capped at 300, extension-initiated calls excluded via `tabId >= 0`. The log rides with the session and saved recordings and feeds the `psweb` target: a browser-less PowerShell script using only `Invoke-WebRequest`/`Invoke-RestMethod` (session-cookie continuity, CSRF extraction from preceding GETs, logged statuses asserted).
 
 **Delinea Secret Server mode.** A 🔐 checkbox on script targets appends per-language rules to the system prompt: module-free SS REST helpers (`-AuthMethod windows|token`), one `-<Name>SecretId` parameter per credential, credentials resolved only at runtime, and the service-account rotation pattern — generate locally, change target, verify, write back to SS, loud out-of-sync failure. The audit renders the exact modified prompt.
+
+### v1.6 addition: AI integration is optional
+
+A persisted `aiEnabled` flag (🤖 toggle in the recorder) gates every model-touching path in BOTH layers: the panel disables narration and hides the AI generation/audit controls, while the worker independently refuses generation (`requireEndpoint`) and skips `captionStep` — belt and braces, so no message path can reach an endpoint while off. `localSopMarkdown()` (panel) assembles a draft directly from the step ledger using the same `{{screenshot_N}}` token contract as model output, so the existing preview/splice/export pipeline serves both. AI-independent features (capture, evidence, verify, walkthrough, autopilot, packs, redaction, sentinel) are untouched by the flag.
 
 ### v1.5 additions: execution, evidence, batches, sentinel, branches, packs, redaction
 

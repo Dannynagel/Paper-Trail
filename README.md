@@ -22,6 +22,7 @@ Clicks & fields (DOM / UIA)  ──►  Semantic step ledger  ──►  LLM  �
 | | |
 |---|---|
 | **Recorder** | Web (any site, all frames), desktop via UIA companion (recommended, Windows) or window-capture mode (no install, any OS) |
+| **🤖 AI optional** | One toggle turns off every model-touching feature; a local builder still drafts the SOP from the recorded steps — run fully offline |
 | **Voice narration** | 🎤 speak while recording; transcribed via any OpenAI-compatible Whisper endpoint, attached to steps by timestamp; audio never stored |
 | **Caption-on-capture** | Optional: desktop frames described by your vision model the moment they're captured — generation stays text-only and fast |
 | **Library** | IndexedDB-backed saved recordings: open, rename, re-generate, compare, share as `.ptpack` |
@@ -39,7 +40,7 @@ Clicks & fields (DOM / UIA)  ──►  Semantic step ledger  ──►  LLM  �
 | **🔐 Delinea Secret Server** | Generated scripts source credentials from on-prem SS at runtime (windows/token auth) and follow the rotate-verify-write-back pattern for service-account password changes |
 | **🔍 Privacy Audit** | The exact request body that would be sent — images redacted to size placeholders, credentials excluded — exportable for compliance sign-off |
 
-**Providers:** Anthropic · OpenAI · any OpenAI-compatible URL — including fully local **Ollama / LM Studio** (default local model: `gemma4:12b-it-qat`) with a local Whisper server for narration. See [INSTALL.md — fully local setup](docs/INSTALL.md#fully-local-setup-free-models).
+**Providers:** Anthropic · OpenAI · any OpenAI-compatible URL — including fully local **Ollama / LM Studio** (default local model: `gemma4:12b-it-qat`) with a local Whisper server for narration — or **no model at all** (🤖 toggle off: local drafting only). See [INSTALL.md — fully local setup](docs/INSTALL.md#fully-local-setup-free-models).
 
 ## Quick start
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.0
+
+- **AI integration is now optional.** A 🤖 toggle in the Recorder tab (persisted, default on) turns off every model-touching feature for when an endpoint is unavailable or unwanted: desktop-frame captions and narration are disabled, the AI generation/audit controls hide, and the worker independently refuses any generation request — nothing can leave the machine while it's off.
+- **Draft SOP without AI**: a new local builder assembles the document directly from the recorded steps — Inputs list from run-time parameters (sample values swapped for `<PLACEHOLDERS>`), numbered steps with notes/narration/captions, and locally spliced screenshots — through the same preview/export pipeline. Available in both modes; primary when AI is off.
+- Recording, evidence runs, Verify, Walkthrough, and Autopilot never used AI and work identically in either mode.
+
 ## 1.5.1
 
 Bug fixes from a post-release code review of the v1.5 features:

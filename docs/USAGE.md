@@ -15,6 +15,8 @@ From a live session to an illustrated SOP (or a runnable automation) in five ste
 
 Field values are masked by default — steps read "Enter a value in **Field**" without the content. Enable *Record typed values* in options only if the values themselves belong in the document; password/payment-like fields stay masked regardless.
 
+**🤖 AI features** (toggle under the capture buttons, on by default) controls everything that touches a model. Turn it off when no endpoint is available — or wanted: desktop-frame captions and narration are disabled, AI generation hides, and the worker refuses any generation request, so nothing can leave the machine. Recording itself, evidence runs, ✓ Verify, ▶ Walk, and ⚡ Autopilot never use AI and work identically either way. You can still produce documents — see **Draft SOP without AI** below.
+
 ### Voice narration
 
 Press **🎤 Narrate** while recording (it starts the recording if idle) and talk through what you're doing — the *why*, prerequisites, warnings. When you stop, the audio is transcribed through the OpenAI-compatible Whisper endpoint configured in options (works with local Whisper servers), and each spoken segment attaches to the step it followed as a 🎙 row. Generated SOPs use narration as authoritative intent context. Privacy: the audio is sent once for transcription and **never stored** — only the transcript text becomes part of the recording, and the audit lists exactly which steps carry it. For a free local transcription server, see [INSTALL.md §2 — Fully local setup](INSTALL.md#fully-local-setup-free-models). Keep the panel open while narrating; closing it drops the audio (never the steps). If the mic prompt doesn't appear, a helper tab opens to grant the permission.
@@ -66,6 +68,7 @@ The **note field** under each step is the highest-leverage input you have: notes
 2. Optionally add context (purpose, audience, system name) — it shapes the Title/Purpose/Scope sections.
 3. For script targets, **🔐 Credentials via Delinea Secret Server** makes the generated script source every credential from your on-prem Secret Server at runtime (module-free REST helpers, `-AuthMethod windows|token`, one `-<Name>SecretId` per credential — nothing prompted or hard-coded). For service-account **password changes**, the script generates the new password locally, applies the recorded change, verifies it, and only then writes it back to Secret Server — failing loudly if target and vault end up out of sync.
 4. Click **Generate**. One API call; typical drafts return in seconds.
+5. No model, no problem: **📄 Draft SOP without AI** assembles the document locally from the recorded steps — an Inputs list from your run-time parameters (recorded sample values are swapped for `<PLACEHOLDERS>`), numbered steps with notes, narration, and captions, and screenshots spliced in as always. It's available in both modes (it becomes the primary button when 🤖 AI is off) and sends nothing anywhere. Expect a faithful transcript-style document rather than the model's editorial pass (merged steps, inferred prerequisites).
 
 What leaves the machine per target is detailed in [DESIGN.md §6](DESIGN.md#6-privacy--security-model); automation targets are always text-only. For a zero-cost, fully local provider setup (Ollama + Gemma 4 12B QAT), see [INSTALL.md §2 — Fully local setup](INSTALL.md#fully-local-setup-free-models).
 
