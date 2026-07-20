@@ -251,9 +251,7 @@ async function captionStep(stepId) {
     if (!data) return;
 
     const shots = [{ n: step.n, data }];
-    const text = st.provider === "anthropic"
-      ? await callAnthropic(st, CAPTION_PROMPT, "Describe this step.", shots)
-      : await callOpenAI(st, CAPTION_PROMPT, "Describe this step.", shots);
+    const text = await callModel(st, CAPTION_PROMPT, "Describe this step.", shots);
     const caption = String(text || "").replace(/\s+/g, " ").trim().slice(0, 300);
     if (!caption) return;
 
@@ -869,6 +867,13 @@ function requireEndpoint(st) {
   // The worker enforces the 🤖 toggle independently of the panel UI, so no
   // message path can reach a model while AI features are off.
   if (!st.aiEnabled) throw new Error("AI features are off (🤖 toggle in the recorder panel). Use “Draft SOP without AI”, or turn AI back on.");
+  if (st.provider === "claude") {
+    const a = st.claudeAuth;
+    if (!a || (!a.accessToken && !a.refreshToken)) {
+      throw new Error("Not signed in with your Claude account — connect it in ⚙ options (or switch provider).");
+    }
+    return;
+  }
   if (!st.apiKey && st.provider !== "custom") throw new Error("No API key configured. Open extension options.");
   if (st.provider === "custom" && !st.customUrl) throw new Error("No custom endpoint URL configured. Open extension options.");
 }
@@ -877,8 +882,7 @@ async function generateSOP(steps, userContext) {
   const st = await getSettings();
   requireEndpoint(st);
   const req = await buildSopRequest(steps, userContext, st);
-  if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
-  return callOpenAI(st, req.system, req.userText, req.shots);
+  return callModel(st, req.system, req.userText, req.shots);
 }
 
 // ── RPA / automation generation (text-only: no pixels ever leave) ──────────
@@ -1065,8 +1069,7 @@ async function generateAutomation(src, userContext, target, extras = {}) {
   requireEndpoint(st);
   const req = buildAutomationRequest(src.steps, userContext, target,
     Object.assign({ http: src.http, paramSets: src.paramSets }, extras));
-  if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
-  return callOpenAI(st, req.system, req.userText, req.shots);
+  return callModel(st, req.system, req.userText, req.shots);
 }
 
 // ── Change-management summary from a recording diff ────────────────────────
@@ -1112,8 +1115,7 @@ async function generateDiff(idA, idB, userContext) {
   requireEndpoint(st);
   const { recA, recB, entries } = await loadDiffPair(idA, idB);
   const req = buildDiffRequest(recA, recB, entries, userContext);
-  if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
-  return callOpenAI(st, req.system, req.userText, req.shots);
+  return callModel(st, req.system, req.userText, req.shots);
 }
 
 // ── Branch-aware SOP from a trunk recording + tagged variants ───────────────
@@ -1167,8 +1169,7 @@ async function generateBranch(trunkId, userContext) {
   requireEndpoint(st);
   const { trunk, variants } = await loadBranchSet(trunkId);
   const req = buildBranchRequest(trunk, variants, userContext);
-  if (st.provider === "anthropic") return callAnthropic(st, req.system, req.userText, req.shots);
-  return callOpenAI(st, req.system, req.userText, req.shots);
+  return callModel(st, req.system, req.userText, req.shots);
 }
 
 // ── Provider transport (bodies shared with the privacy audit) ──────────────
@@ -1176,8 +1177,54 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
 function endpointFor(st) {
-  if (st.provider === "anthropic") return ANTHROPIC_URL;
+  if (st.provider === "anthropic" || st.provider === "claude") return st.anthropicUrl || ANTHROPIC_URL;
   return st.provider === "custom" ? st.customUrl : OPENAI_URL;
+}
+
+// One dispatch for every generation/caption path: the Anthropic Messages API
+// serves both credential modes (API key, or the user's Claude account via
+// OAuth Bearer); everything else speaks the OpenAI chat shape.
+function callModel(st, system, userText, shots) {
+  return (st.provider === "anthropic" || st.provider === "claude")
+    ? callAnthropic(st, system, userText, shots)
+    : callOpenAI(st, system, userText, shots);
+}
+
+// ── Claude account (Sign in with Claude, OAuth + PKCE) ─────────────────────
+// The options page runs the authorize + code-exchange flow; the worker only
+// holds Bearer tokens and refreshes them. Tokens are read fresh from storage
+// (not the settings cache) so concurrent refreshes can't serve a stale token.
+async function claudeAccessToken(st) {
+  let auth = (await chrome.storage.local.get({ claudeAuth: null })).claudeAuth;
+  if (!auth || (!auth.accessToken && !auth.refreshToken)) {
+    throw new Error("Not signed in with your Claude account — connect it in ⚙ options.");
+  }
+  const nearExpiry = auth.expiresAt && Date.now() > auth.expiresAt - 60000;
+  if ((nearExpiry || !auth.accessToken) && auth.refreshToken) {
+    auth = await refreshClaudeAuth(st, auth);
+  }
+  return auth.accessToken;
+}
+
+async function refreshClaudeAuth(st, auth) {
+  const resp = await fetch(st.claudeTokenUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: auth.refreshToken,
+      client_id: st.claudeClientId
+    })
+  });
+  if (!resp.ok) throw new Error("Your Claude account session expired — sign in again in ⚙ options.");
+  const t = await resp.json();
+  const fresh = {
+    accessToken: t.access_token,
+    refreshToken: t.refresh_token || auth.refreshToken,
+    expiresAt: Date.now() + (t.expires_in || 3600) * 1000
+  };
+  await chrome.storage.local.set({ claudeAuth: fresh });
+  return fresh;
 }
 
 function anthropicBody(st, system, userText, shots) {
@@ -1212,14 +1259,20 @@ function openaiBody(st, system, userText, shots) {
 }
 
 async function callAnthropic(st, system, userText, shots) {
-  const resp = await fetch(ANTHROPIC_URL, {
+  const headers = {
+    "content-type": "application/json",
+    "anthropic-version": "2023-06-01",
+    "anthropic-dangerous-direct-browser-access": "true"
+  };
+  if (st.provider === "claude") {
+    headers["Authorization"] = "Bearer " + await claudeAccessToken(st);
+    headers["anthropic-beta"] = "oauth-2025-04-20";
+  } else {
+    headers["x-api-key"] = st.apiKey;
+  }
+  const resp = await fetch(endpointFor(st), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": st.apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
+    headers,
     body: JSON.stringify(anthropicBody(st, system, userText, shots))
   });
   if (!resp.ok) throw new Error(`Anthropic API ${resp.status}: ${await resp.text()}`);
@@ -1282,7 +1335,7 @@ async function buildAudit(target, userContext, recordingId, recordingIdB, extras
       : buildAutomationRequest(steps, userContext, target,
           Object.assign({ http: src.http, paramSets: src.paramSets }, extras));
   }
-  const body = st.provider === "anthropic"
+  const body = (st.provider === "anthropic" || st.provider === "claude")
     ? anthropicBody(st, req.system, req.userText, req.shots)
     : openaiBody(st, req.system, req.userText, req.shots);
   redactImagesInBody(body);

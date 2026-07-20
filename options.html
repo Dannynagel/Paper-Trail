@@ -40,14 +40,32 @@ button { background: var(--accent); color: #05221E; border: 0; border-radius: 6p
     <legend>Model provider</legend>
     <label for="provider">Provider</label>
     <select id="provider">
-      <option value="anthropic">Anthropic (Claude)</option>
+      <option value="anthropic">Anthropic (Claude, API key)</option>
+      <option value="claude">Claude account (Pro/Max subscription — no API key)</option>
       <option value="openai">OpenAI (GPT)</option>
       <option value="custom">Custom OpenAI-compatible endpoint (Ollama / LM Studio / Open WebUI / vLLM)</option>
     </select>
 
-    <label for="apiKey">API key</label>
-    <input type="password" id="apiKey" autocomplete="off" placeholder="sk-…">
-    <div class="hint">Stored in chrome.storage.local on this machine only. Sent only to the endpoint below.</div>
+    <div id="apiKeyBlock">
+      <label for="apiKey">API key</label>
+      <input type="password" id="apiKey" autocomplete="off" placeholder="sk-…">
+      <div class="hint">Stored in chrome.storage.local on this machine only. Sent only to the endpoint below.</div>
+    </div>
+
+    <div id="claudeBlock" hidden>
+      <div id="claudeStatus" class="hint" style="margin-top:10px"></div>
+      <label for="claudeClientId">OAuth client ID</label>
+      <input type="text" id="claudeClientId" autocomplete="off" placeholder="from Anthropic's “Sign in with Claude” program">
+      <div class="hint">Uses your Claude.ai subscription instead of an API key, via OAuth (PKCE) —
+        tokens are stored locally and sent only to Anthropic. Requires a client ID from Anthropic's
+        <b>Sign in with Claude</b> program (beta). Your subscription's terms and rate limits apply.</div>
+      <button id="claudeSignIn" type="button">Sign in with Claude</button>
+      <label for="claudeCode">Authorization code</label>
+      <input type="text" id="claudeCode" autocomplete="off" placeholder="paste the code shown after approving (code#state)">
+      <button id="claudeConnect" type="button">Connect</button>
+      <button id="claudeDisconnect" type="button" hidden>Disconnect</button>
+      <div id="claudeMsg" class="hint"></div>
+    </div>
 
     <label for="model">Model</label>
     <input type="text" id="model" placeholder="claude-sonnet-4-6 / gpt-4o / gemma4:12b-it-qat">

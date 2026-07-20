@@ -48,8 +48,31 @@ async function waitFor(fn, { timeout = 20000, interval = 150, desc = "condition"
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ── Local server: form page + stub chat endpoint ────────────────────────────
-const llmRequests = []; // every body POSTed to the stub endpoint
+const llmRequests = [];       // every body POSTed to the OpenAI-shaped stub
+const anthropicRequests = []; // {headers, body} POSTed to the Anthropic-shaped stub
+const tokenRequests = [];     // bodies POSTed to the stub OAuth token endpoint
 const server = http.createServer((req, res) => {
+  if (req.method === "POST" && req.url === "/v1/messages") {
+    let body = "";
+    req.on("data", (c) => body += c);
+    req.on("end", () => {
+      try { anthropicRequests.push({ headers: req.headers, body: JSON.parse(body) }); }
+      catch (e) { anthropicRequests.push({ headers: req.headers, parseError: String(e) }); }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ content: [{ type: "text", text: "# Claude Stub\n\nSubscription-auth completion." }] }));
+    });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/oauth/token") {
+    let body = "";
+    req.on("data", (c) => body += c);
+    req.on("end", () => {
+      try { tokenRequests.push(JSON.parse(body)); } catch (e) { tokenRequests.push({ parseError: String(e) }); }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ access_token: "tok-fresh", refresh_token: "r-fresh", expires_in: 3600 }));
+    });
+    return;
+  }
   if (req.method === "POST" && req.url === "/v1/chat/completions") {
     let body = "";
     req.on("data", (c) => body += c);
@@ -830,6 +853,67 @@ const server = http.createServer((req, res) => {
     await send({ cmd: "stop" });
     await send({ cmd: "clear" });
     await panel.evaluate((cfg) => chrome.storage.local.set(cfg), { captionOnCapture: false });
+
+    // ── 1.7.0: Claude account (OAuth) as an alternative to an API key ──────
+    section("Claude account provider — Bearer auth + automatic refresh");
+    await panel.evaluate((cfg) => chrome.storage.local.set(cfg), {
+      provider: "claude",
+      anthropicUrl: `${BASE}/v1/messages`,
+      claudeTokenUrl: `${BASE}/oauth/token`,
+      claudeClientId: "smoke-client",
+      claudeAuth: { accessToken: "tok-old", refreshToken: "r-old", expiresAt: Date.now() - 1000 }
+    });
+    const genClaude = await send({ cmd: "generate", target: "sop", recordingId: recId });
+    check("generation succeeds via the Claude account path",
+      !!genClaude && genClaude.ok === true && /Claude Stub/.test(genClaude.markdown),
+      genClaude && genClaude.error);
+    check("expired token was refreshed first (grant_type/refresh_token/client_id)",
+      tokenRequests.length === 1 && tokenRequests[0].grant_type === "refresh_token" &&
+      tokenRequests[0].refresh_token === "r-old" && tokenRequests[0].client_id === "smoke-client",
+      tokenRequests[0]);
+    const aReq = anthropicRequests[0] || { headers: {} };
+    check("request carries Bearer + oauth beta header, no API key",
+      aReq.headers.authorization === "Bearer tok-fresh" &&
+      /oauth/.test(aReq.headers["anthropic-beta"] || "") &&
+      aReq.headers["x-api-key"] === undefined &&
+      /Standard Operating Procedure/.test(aReq.body.system || ""),
+      aReq.headers);
+    check("refreshed tokens persisted",
+      await panel.evaluate(async () => {
+        const { claudeAuth } = await chrome.storage.local.get({ claudeAuth: null });
+        return claudeAuth.accessToken === "tok-fresh" && claudeAuth.refreshToken === "r-fresh";
+      }));
+    await panel.evaluate(() => chrome.storage.local.set({ claudeAuth: null }));
+    const genNoAuth = await send({ cmd: "generate", target: "sop", recordingId: recId });
+    check("clear error when not signed in",
+      !!genNoAuth && genNoAuth.ok === false && /Claude account/.test(genNoAuth.error || ""), genNoAuth);
+
+    section("Options page — code exchange (PKCE) flow");
+    const opts = await ctx.newPage();
+    await opts.goto(`chrome-extension://${extId}/options.html`);
+    await opts.selectOption("#provider", "claude");
+    check("claude provider shows the sign-in block, hides the API key",
+      await opts.evaluate(() => !$("claudeBlock").hidden && $("apiKeyBlock").hidden));
+    await opts.evaluate(() => chrome.storage.local.set({
+      claudeOauthPending: { verifier: "v-test", state: "st-1" }
+    }));
+    await opts.fill("#claudeCode", "abc#st-1");
+    await opts.click("#claudeConnect");
+    await waitFor(() => opts.evaluate(async () => {
+      const { claudeAuth } = await chrome.storage.local.get({ claudeAuth: null });
+      return !!(claudeAuth && claudeAuth.accessToken === "tok-fresh");
+    }), { desc: "code exchange stored tokens" });
+    const exch = tokenRequests[tokenRequests.length - 1];
+    check("exchange sent the code + PKCE verifier + state",
+      exch.grant_type === "authorization_code" && exch.code === "abc" &&
+      exch.code_verifier === "v-test" && exch.state === "st-1", exch);
+    check("options page reports connected",
+      await opts.evaluate(() => /Connected/.test($("claudeStatus").textContent)));
+    await opts.close();
+    // restore the suite's default provider config
+    await panel.evaluate((cfg) => chrome.storage.local.set(cfg), {
+      provider: "custom", claudeAuth: null, anthropicUrl: ""
+    });
 
     // FEATURE SECTIONS APPENDED BELOW AS THEY ARE IMPLEMENTED
   } catch (e) {

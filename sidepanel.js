@@ -844,7 +844,9 @@ ${(a.narratedSteps && a.narratedSteps.length)
 
 ## Credentials
 
-- The API key travels only as a request header to the endpoint above; it is not part of the body and is excluded from this audit.
+- ${a.provider === "claude"
+    ? "Your Claude account's OAuth token travels only as an Authorization header to the endpoint above; it is not part of the body and is excluded from this audit."
+    : "The API key travels only as a request header to the endpoint above; it is not part of the body and is excluded from this audit."}
 
 ## System prompt (sent verbatim)
 

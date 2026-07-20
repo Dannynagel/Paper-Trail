@@ -236,10 +236,20 @@ eq("settings defaults carry the transcription endpoint",
   PTCommon.SETTINGS_DEFAULTS.transcribeUrl.includes("/v1/audio/transcriptions") &&
   PTCommon.SETTINGS_DEFAULTS.maxSteps === 150, true);
 
-const h = document.createElement("h1");
-h.className = failed ? "fail" : "pass";
-h.textContent = `${passed} passed, ${failed} failed`;
-out.prepend(h);
+// ── PKCE (Sign in with Claude) — async, so the tally waits for it ────────
+(async () => {
+  eq("pkceChallenge is base64url(SHA-256(verifier)) — known vector",
+    await PTCommon.pkceChallenge("test"),
+    "n4bQgYhMfWWaL-qgxVrQFaO_TxsrC4Is0V1sFbDwCgg");
+  eq("randomVerifier emits a valid PKCE verifier",
+    /^[A-Za-z0-9_-]{43,128}$/.test(PTCommon.randomVerifier()) &&
+    PTCommon.randomVerifier() !== PTCommon.randomVerifier(), true);
+
+  const h = document.createElement("h1");
+  h.className = failed ? "fail" : "pass";
+  h.textContent = `${passed} passed, ${failed} failed`;
+  out.prepend(h);
+})();
 </script>
 </body>
 </html>

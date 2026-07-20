@@ -10,8 +10,18 @@ const PTCommon = (() => {
   // (getSettings), the options page, and the panel's transcription path.
   const SETTINGS_DEFAULTS = {
     aiEnabled: true, // 🤖 master switch: off = nothing is ever sent to a model
-    provider: "anthropic",
+    provider: "anthropic", // anthropic (API key) | claude (Claude account OAuth) | openai | custom
     apiKey: "",
+    // "Sign in with Claude" (OAuth + PKCE): tokens live in claudeAuth; the
+    // client id comes from Anthropic's Sign in with Claude program. URLs are
+    // settings so tests (and gateways) can point them elsewhere.
+    claudeClientId: "",
+    claudeAuthUrl: "https://claude.ai/oauth/authorize",
+    claudeTokenUrl: "https://console.anthropic.com/v1/oauth/token",
+    claudeRedirectUri: "https://console.anthropic.com/oauth/code/callback",
+    claudeScopes: "user:inference user:profile",
+    claudeAuth: null, // { accessToken, refreshToken, expiresAt }
+    anthropicUrl: "", // blank = the public Messages API endpoint
     model: "",
     customUrl: "",
     includeScreenshots: false,
@@ -24,7 +34,7 @@ const PTCommon = (() => {
   };
 
   function defaultModel(provider) {
-    return provider === "anthropic" ? "claude-sonnet-4-6"
+    return provider === "anthropic" || provider === "claude" ? "claude-sonnet-4-6"
          : provider === "custom" ? "gemma4:12b-it-qat" // Ollama-friendly local default
          : "gpt-4o";
   }
@@ -270,6 +280,24 @@ const PTCommon = (() => {
     return parts.length ? parts.join(", ") : "no steps";
   }
 
+  // ── OAuth PKCE helpers (Sign in with Claude) ─────────────────────────────
+  function b64url(bytes) {
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function randomVerifier() {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    return b64url(bytes); // 43 chars of [A-Za-z0-9_-] — valid PKCE verifier
+  }
+
+  async function pkceChallenge(verifier) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+    return b64url(new Uint8Array(digest));
+  }
+
   // ── Tab plumbing shared by Verify (panel), Autopilot (panel), and the
   // drift sentinel (worker). These touch chrome.* only when CALLED, so this
   // file still loads cleanly in tests.html and the content script. ─────────
@@ -335,7 +363,7 @@ const PTCommon = (() => {
   }
 
   return {
-    SETTINGS_DEFAULTS, defaultModel, looksSecret,
+    SETTINGS_DEFAULTS, defaultModel, looksSecret, randomVerifier, pkceChallenge,
     normLabel, labelMatches, anchorList, samePage, sameOrigin, urlHost,
     summarizeVerify, diffSteps, summarizeDiff, mapNarration, auditStats,
     summarizeRun, parseCsv, paramNames, fileStem,
