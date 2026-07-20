@@ -240,7 +240,7 @@ const CAPTION_PROMPT = `You describe one step of a recorded desktop procedure fr
 async function captionStep(stepId) {
   try {
     const st = await getSettings();
-    if (!st.captionOnCapture) return;
+    if (!st.aiEnabled || !st.captionOnCapture) return;
     if (!st.apiKey && st.provider !== "custom") return;   // no endpoint configured — skip silently
     if (st.provider === "custom" && !st.customUrl) return;
 
@@ -866,6 +866,9 @@ async function buildSopRequest(steps, userContext, st) {
 }
 
 function requireEndpoint(st) {
+  // The worker enforces the 🤖 toggle independently of the panel UI, so no
+  // message path can reach a model while AI features are off.
+  if (!st.aiEnabled) throw new Error("AI features are off (🤖 toggle in the recorder panel). Use “Draft SOP without AI”, or turn AI back on.");
   if (!st.apiKey && st.provider !== "custom") throw new Error("No API key configured. Open extension options.");
   if (st.provider === "custom" && !st.customUrl) throw new Error("No custom endpoint URL configured. Open extension options.");
 }

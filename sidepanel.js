@@ -397,6 +397,7 @@ let micStream = null, micRecorder = null, micChunks = [], micStartTs = 0;
 let pendingAudio = null; // { blob, startTs } — panel-local retry buffer only
 
 async function startMic() {
+  if (!aiEnabled) return; // narration is transcription-only; audio is never stored
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -510,6 +511,50 @@ function renderMicStatus() {
 
 $("btnMic").addEventListener("click", () => (micStream ? stopMic() : startMic()));
 
+// ── 🤖 AI features toggle ───────────────────────────────────────────────────
+// Off = nothing is ever sent to a model: desktop-frame captions and narration
+// are disabled (both need an endpoint), the AI generation controls hide, and
+// drafts come from the local no-AI builder. Recording, evidence, verify,
+// walkthrough, and Autopilot never involve AI in either state. The worker
+// enforces the same flag independently (requireEndpoint / captionStep).
+let aiEnabled = true;
+
+function applyAiUI() {
+  $("useAI").checked = aiEnabled;
+  $("aiOffNote").hidden = aiEnabled;
+  $("genTarget").hidden = !aiEnabled;
+  $("context").hidden = !aiEnabled;
+  $("ssRow").hidden = !aiEnabled || !SS_TARGETS.includes($("genTarget").value);
+  $("btnGenerate").hidden = !aiEnabled;
+  $("btnAudit").hidden = !aiEnabled;
+  $("btnLocalSop").classList.toggle("primary", !aiEnabled);
+  $("btnLocalSop").classList.toggle("ghost", aiEnabled);
+  const mic = $("btnMic");
+  mic.disabled = !aiEnabled;
+  mic.title = aiEnabled
+    ? "Narrate while recording — transcribed via your configured Whisper endpoint; audio is never stored"
+    : "AI features are off — narration needs a transcription endpoint (🤖 toggle above)";
+}
+
+$("useAI").addEventListener("change", async (e) => {
+  aiEnabled = e.target.checked;
+  await chrome.storage.local.set({ aiEnabled });
+  applyAiUI();
+});
+
+// Stay in sync if the flag changes elsewhere (another panel, future options UI).
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.aiEnabled) {
+    aiEnabled = !!changes.aiEnabled.newValue;
+    applyAiUI();
+  }
+});
+
+chrome.storage.local.get({ aiEnabled: true }).then((d) => {
+  aiEnabled = d.aiEnabled;
+  applyAiUI();
+});
+
 // "Quantity of items…" → "QUANTITY_OF_ITEMS" — default run-time parameter name.
 function paramNameFromLabel(label) {
   return String(label || "VALUE").replace(/…$/, "").trim()
@@ -588,7 +633,7 @@ function useSecretServer() {
 $("genTarget").addEventListener("change", () => {
   const t = $("genTarget").value;
   $("btnGenerate").textContent = GEN_LABELS[t] || "Generate";
-  $("ssRow").hidden = !SS_TARGETS.includes(t);
+  $("ssRow").hidden = !aiEnabled || !SS_TARGETS.includes(t);
 });
 
 $("btnGenerate").addEventListener("click", async () => {
@@ -617,6 +662,58 @@ $("btnGenerate").addEventListener("click", async () => {
   currentMarkdown = resp.markdown.trim()
     // Belt-and-braces: strip a whole-document code fence if the model added one
     .replace(/^```[a-z]*\r?\n([\s\S]*?)\r?\n```$/i, "$1");
+  await prepareSplice();
+  showResult();
+});
+
+// ── Local no-AI draft: assemble the SOP directly from the recorded steps ───
+// Same {{screenshot_N}} tokens as model output, so the existing preview,
+// splice, and export pipeline applies unchanged. Nothing is sent anywhere.
+function localSopMarkdown(steps, title) {
+  const hosts = [...new Set(steps.map(s => PTCommon.urlHost(s.url)).filter(Boolean))].slice(0, 5);
+  const params = PTCommon.paramNames({ steps });
+  const lines = [
+    `# ${title}`,
+    "",
+    `*Assembled locally from ${steps.length} recorded step${steps.length === 1 ? "" : "s"}` +
+      `${hosts.length ? " on " + hosts.join(", ") : ""} — no AI model involved.*`,
+    ""
+  ];
+  if (params.length) {
+    lines.push("## Inputs", "");
+    for (const p of params) lines.push(`- \`<${p}>\` — supplied fresh on every run`);
+    lines.push("");
+  }
+  lines.push("## Procedure", "");
+  for (const s of steps) {
+    let text = String(s.text || "").trim();
+    if (s.type === "desktop" && s.caption) text = s.caption;
+    if (s.param) {
+      // the recorded value is only a sample — show the placeholder instead
+      text = s.value && text.includes(`"${s.value}"`)
+        ? text.replace(`"${s.value}"`, `<${s.param}>`)
+        : `${text} (parameter: <${s.param}>)`;
+    }
+    lines.push(`${s.n}. ${text}`);
+    if (s.note) lines.push(`   - 📝 ${s.note}`);
+    if (s.narration) lines.push(`   - 🎙 *${s.narration}*`);
+    if (s.shot || s.hasShot) lines.push("", `{{screenshot_${s.n}}}`, "");
+  }
+  return lines.join("\n");
+}
+
+$("btnLocalSop").addEventListener("click", async () => {
+  const steps = activeRecording ? activeRecording.steps : currentSession.steps;
+  const gs = $("genStatus");
+  if (!steps.length) {
+    gs.hidden = false; gs.className = "status err"; gs.textContent = "No steps recorded yet.";
+    return;
+  }
+  gs.hidden = true;
+  const first = steps.find(s => s.pageTitle);
+  const title = activeRecording ? activeRecording.title : ((first && first.pageTitle) || "Procedure");
+  currentTarget = "sop";
+  currentMarkdown = localSopMarkdown(steps, title);
   await prepareSplice();
   showResult();
 });

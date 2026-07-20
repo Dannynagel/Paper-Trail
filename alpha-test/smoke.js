@@ -768,6 +768,69 @@ const server = http.createServer((req, res) => {
       !!senAfter && senAfter.ok === true, senAfter);
     for (const p of ctx.pages()) if (p !== panel) await p.close().catch(() => {});
 
+    // ── 1.6.0: AI features are optional ─────────────────────────────────────
+    section("AI toggle — off means nothing reaches a model");
+    await panel.click("#tabBtnRecorder");
+    await panel.click("#useAI"); // default on → off
+    await waitFor(() => panel.evaluate(async () =>
+      (await chrome.storage.local.get({ aiEnabled: true })).aiEnabled === false),
+      { desc: "aiEnabled persisted off" });
+    check("toggle persists and gates the panel UI",
+      await panel.evaluate(() =>
+        $("btnMic").disabled && $("btnGenerate").hidden && $("btnAudit").hidden &&
+        !$("aiOffNote").hidden && $("btnLocalSop").classList.contains("primary")));
+    const llmBeforeOff = llmRequests.length;
+    const genOff = await send({ cmd: "generate", target: "sop", recordingId: recId });
+    check("worker refuses generation while AI is off",
+      !!genOff && genOff.ok === false && /AI features are off/.test(genOff.error || ""), genOff);
+    check("no request left the machine", llmRequests.length === llmBeforeOff);
+
+    section("Local no-AI SOP draft");
+    await panel.evaluate(async (id) => setGenSource(await PTDB.getRecording(id)), recId);
+    await panel.click("#btnLocalSop");
+    await waitFor(() => panel.evaluate(() => !$("result").hidden), { desc: "local draft rendered" });
+    const localMd = await panel.evaluate(() => currentMarkdown);
+    check("draft assembled from the recorded steps",
+      /## Procedure/.test(localMd) && /Add item/.test(localMd) && /no AI model involved/.test(localMd));
+    check("param placeholder replaces the sample value",
+      /<QUANTITY>/.test(localMd) && !/Enter "3"/.test(localMd));
+    check("screenshots spliced locally into the preview",
+      await panel.evaluate(() => $("preview").innerHTML.includes("<img")));
+    check("building the draft sent nothing", llmRequests.length === llmBeforeOff);
+    await panel.evaluate(() => setGenSource(null));
+
+    section("Caption-on-capture honors the AI toggle");
+    await panel.evaluate((cfg) => chrome.storage.local.set(cfg), { captionOnCapture: true });
+    await send({ cmd: "start" });
+    const tinyShot = await panel.evaluate(async () => {
+      const c = new OffscreenCanvas(80, 50);
+      const cx = c.getContext("2d");
+      cx.fillStyle = "#08a";
+      cx.fillRect(0, 0, 80, 50);
+      return await PTCommon.blobToDataUrl(await c.convertToBlob({ type: "image/jpeg" }));
+    });
+    await send({ cmd: "addDesktopStep", shot: tinyShot, label: "Test window", manual: true });
+    await sleep(900);
+    const deskOff = (await state()).steps.filter(x => x.type === "desktop");
+    check("AI off: desktop frame stays uncaptioned, no request",
+      deskOff.length === 1 && !deskOff[0].caption && llmRequests.length === llmBeforeOff,
+      deskOff.map(x => x.caption));
+    await panel.click("#useAI"); // back on
+    await waitFor(() => panel.evaluate(async () =>
+      (await chrome.storage.local.get({ aiEnabled: true })).aiEnabled === true),
+      { desc: "aiEnabled back on" });
+    await send({ cmd: "addDesktopStep", shot: tinyShot, label: "Test window", manual: true });
+    await waitFor(async () => {
+      const d = (await state()).steps.filter(x => x.type === "desktop");
+      return d.length === 2 && /Stub Output/.test(d[1].caption || "");
+    }, { desc: "caption arrives with AI on" });
+    check("AI on: the same frame gets captioned via the endpoint", true);
+    check("AI generation controls restored",
+      await panel.evaluate(() => !$("btnGenerate").hidden && !$("btnMic").disabled));
+    await send({ cmd: "stop" });
+    await send({ cmd: "clear" });
+    await panel.evaluate((cfg) => chrome.storage.local.set(cfg), { captionOnCapture: false });
+
     // FEATURE SECTIONS APPENDED BELOW AS THEY ARE IMPLEMENTED
   } catch (e) {
     failed++;

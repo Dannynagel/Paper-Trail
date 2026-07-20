@@ -9,6 +9,7 @@ const PTCommon = (() => {
   // One home for the extension's settings defaults; read by the worker
   // (getSettings), the options page, and the panel's transcription path.
   const SETTINGS_DEFAULTS = {
+    aiEnabled: true, // 🤖 master switch: off = nothing is ever sent to a model
     provider: "anthropic",
     apiKey: "",
     model: "",

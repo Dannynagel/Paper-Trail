@@ -35,6 +35,10 @@
       <button id="btnSave" class="ghost" title="Save this session to the library" disabled>💾 Save</button>
     </section>
 
+    <label id="aiRow" class="ss-row" title="Off: nothing is ever sent to a model — desktop-frame captions and narration are disabled, and drafts are built locally from the recorded steps. Recording, evidence, verify, walkthrough, and Autopilot never use AI either way.">
+      <input type="checkbox" id="useAI" checked> 🤖 AI features (captions · narration · generation)
+    </label>
+
     <div id="deskStatus" class="status desk" hidden></div>
     <div id="micStatus" class="status desk" hidden></div>
 
@@ -67,7 +71,9 @@
     <label id="ssRow" class="ss-row" hidden title="Generated script sources every credential from Delinea Secret Server (on-prem REST API) and, for password changes, writes the rotated password back">
       <input type="checkbox" id="useSS"> 🔐 Credentials via Delinea Secret Server
     </label>
+    <div id="aiOffNote" class="status" hidden>🤖 AI is off — drafts are built locally from the recorded steps; nothing leaves this machine.</div>
     <button id="btnGenerate" class="primary wide">Generate SOP</button>
+    <button id="btnLocalSop" class="ghost wide" title="Assemble the SOP locally from the recorded steps, notes, and screenshots — no model, nothing sent anywhere">📄 Draft SOP without AI</button>
     <button id="btnAudit" class="ghost wide" title="Build the exact request locally — nothing is sent anywhere">🔍 Preview what will be sent</button>
     <div id="genStatus" class="status" hidden></div>
   </section>
