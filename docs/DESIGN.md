@@ -1,6 +1,6 @@
 # Paper Trail — Design Document
 
-**Version 1.6.0 · Chrome Extension (Manifest V3) + Windows UIA companion (recommended for desktop capture)**
+**Version 1.7.1 · Chrome Extension (Manifest V3) + Windows UIA companion (recommended for desktop capture)**
 
 Paper Trail converts a live browser or desktop session into (a) an illustrated Standard Operating Procedure and (b) optionally, an RPA artifact — by capturing *semantic* actions rather than video. Since v1.5 the same recorded anchors also *execute*: a saved recording can be run back attended (Autopilot) with a local evidence trail, and watched for UI drift on a schedule.
 
@@ -202,7 +202,7 @@ A persisted `aiEnabled` flag (🤖 toggle in the recorder) gates every model-tou
 
 ### v1.7 addition: Claude account sign-in
 
-The `claude` provider authenticates the same Messages API calls with the user's Claude.ai subscription instead of an API key. The options page owns the OAuth 2.0 Authorization Code + PKCE flow (S256; `PTCommon.randomVerifier`/`pkceChallenge`, verifier held in a transient `claudeOauthPending` key): authorize in a tab, paste back `code#state`, exchange at the token endpoint. The worker holds only `claudeAuth {accessToken, refreshToken, expiresAt}`, refreshes ~60 s before expiry, and reads tokens fresh from storage rather than the settings cache so concurrent refreshes can't serve a stale token. The client ID is a setting — issued by Anthropic's *Sign in with Claude* program (beta) — and the authorize/token/redirect URLs are settings too, which keeps the flow testable (the smoke suite drives refresh and code exchange against a stub token endpoint) and gateway-friendly (`anthropicUrl` override).
+The `claude` provider authenticates the same Messages API calls with the user's Claude.ai subscription instead of an API key. The options page owns the OAuth 2.0 Authorization Code + PKCE flow (S256; `PTCommon.randomVerifier`/`pkceChallenge`, verifier held in a transient `claudeOauthPending` key): authorize in a tab, paste back `code#state`, exchange at the token endpoint. The worker holds only `claudeAuth {accessToken, refreshToken, expiresAt}`, refreshes ~60 s before expiry, and reads tokens fresh from storage rather than the settings cache so concurrent refreshes can't serve a stale token. The client ID is a setting — issued by Anthropic's *Sign in with Claude* program (beta) — and the authorize/token/redirect URLs are settings too, which keeps the flow testable (the smoke suite drives refresh and code exchange against a stub token endpoint) and gateway-friendly (`anthropicUrl` override). Failure handling (1.7.1): 429/529 auto-retry honoring short `Retry-After`s, one forced refresh + retry on 401, and a diagnostic 429 message carrying the server's error text plus the Team/Enterprise entitlement guidance.
 
 ### v1.5 additions: execution, evidence, batches, sentinel, branches, packs, redaction
 

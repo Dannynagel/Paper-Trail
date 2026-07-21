@@ -1258,26 +1258,82 @@ function openaiBody(st, system, userText, shots) {
   };
 }
 
-async function callAnthropic(st, system, userText, shots) {
-  const headers = {
-    "content-type": "application/json",
-    "anthropic-version": "2023-06-01",
-    "anthropic-dangerous-direct-browser-access": "true"
-  };
-  if (st.provider === "claude") {
-    headers["Authorization"] = "Bearer " + await claudeAccessToken(st);
-    headers["anthropic-beta"] = "oauth-2025-04-20";
-  } else {
-    headers["x-api-key"] = st.apiKey;
+// Turn a failed Anthropic response into a message a human can act on.
+// 429 on the Claude-account path gets the Enterprise/Team guidance: pooled
+// usage and admin-gated app access mean an instant, persistent 429 right
+// after sign-in is usually an entitlement question, not a burst limit.
+async function anthropicErrorMessage(resp, st) {
+  let detail = "";
+  try {
+    const j = JSON.parse(await resp.text());
+    detail = (j.error && (j.error.message || j.error.type)) || "";
+  } catch (e) { /* non-JSON body */ }
+  const retryAfter = resp.headers.get("retry-after");
+  if (resp.status === 429) {
+    let msg = st.provider === "claude"
+      ? "Your Claude account is rate/usage-limited (429)."
+      : "Rate limited by the API (429).";
+    if (retryAfter) msg += ` The server asks to retry in ~${retryAfter}s.`;
+    if (st.provider === "claude") {
+      msg += " If this happens immediately and every time on a Team/Enterprise plan, it's likely not a burst limit: " +
+        "usage is pooled per organization and admins control which apps may use Sign in with Claude — " +
+        "ask your Claude admin whether this app is enabled for your workspace, or switch to an API key / gateway (custom endpoint).";
+    }
+    return msg + (detail ? ` [server: ${detail}]` : "");
   }
-  const resp = await fetch(endpointFor(st), {
-    method: "POST",
-    headers,
-    body: JSON.stringify(anthropicBody(st, system, userText, shots))
-  });
-  if (!resp.ok) throw new Error(`Anthropic API ${resp.status}: ${await resp.text()}`);
-  const data = await resp.json();
-  return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+  if (resp.status === 529) {
+    return "Anthropic is temporarily overloaded (529) — try again shortly." + (detail ? ` [server: ${detail}]` : "");
+  }
+  if (resp.status === 401 && st.provider === "claude") {
+    return "Your Claude account session was rejected (401) — sign in again in ⚙ options." + (detail ? ` [server: ${detail}]` : "");
+  }
+  return `Anthropic API ${resp.status}: ${detail || "request failed"}`;
+}
+
+async function callAnthropic(st, system, userText, shots) {
+  const body = JSON.stringify(anthropicBody(st, system, userText, shots));
+  let refreshedOn401 = false;
+  for (let attempt = 0; ; attempt++) {
+    const headers = {
+      "content-type": "application/json",
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    };
+    if (st.provider === "claude") {
+      headers["Authorization"] = "Bearer " + await claudeAccessToken(st);
+      headers["anthropic-beta"] = "oauth-2025-04-20";
+    } else {
+      headers["x-api-key"] = st.apiKey;
+    }
+    const resp = await fetch(endpointFor(st), { method: "POST", headers, body });
+    if (resp.ok) {
+      const data = await resp.json();
+      return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+    }
+
+    // Revoked/early-expired token (enterprise SSO tokens can be short-lived):
+    // force one refresh and retry, even if the stored expiry looked fine.
+    if (resp.status === 401 && st.provider === "claude" && !refreshedOn401) {
+      const { claudeAuth } = await chrome.storage.local.get({ claudeAuth: null });
+      if (claudeAuth && claudeAuth.refreshToken) {
+        await refreshClaudeAuth(st, claudeAuth);
+        refreshedOn401 = true;
+        continue;
+      }
+    }
+
+    // Transient rate limit / overload: brief auto-retry honoring Retry-After.
+    // A long Retry-After (or repeated failures) is surfaced, never slept on.
+    if (resp.status === 429 || resp.status === 529) {
+      const retryAfter = parseInt(resp.headers.get("retry-after") || "", 10);
+      if (attempt < 2 && (!retryAfter || retryAfter <= 15)) {
+        await new Promise(r => setTimeout(r, (retryAfter || 2 * (attempt + 1)) * 1000));
+        continue;
+      }
+    }
+
+    throw new Error(await anthropicErrorMessage(resp, st));
+  }
 }
 
 async function callOpenAI(st, system, userText, shots) {

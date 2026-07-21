@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.1
+
+- **Claude-account resilience**: transient 429/529 responses are retried automatically (honoring short `Retry-After`s; long ones are surfaced, never slept on), and a 401 forces one token refresh + retry — enterprise SSO tokens can expire early. The 429 error is now diagnostic: it shows the server's own message, the suggested wait, and — for Team/Enterprise accounts — the pointer that pooled usage and admin-gated *Sign in with Claude* app access are the usual cause of an instant, persistent 429 right after sign-in.
+
 ## 1.7.0
 
 - **Sign in with your Claude account**: a new provider uses your Claude.ai Pro/Max subscription instead of an API key. OAuth 2.0 Authorization Code + PKCE runs from the options page (approve in a tab, paste the code back); tokens are stored locally and refreshed automatically; requests authenticate with a Bearer token. Requires an OAuth client ID from Anthropic's **Sign in with Claude** program (beta) — your subscription's terms and limits apply.

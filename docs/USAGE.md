@@ -180,4 +180,5 @@ Remap at `chrome://extensions/shortcuts`.
 | Autopilot pauses on a password/secret field | By design — masked values are typed by a human under the overlay, never injected |
 | Sentinel notifies about a site you're logged out of | It grades `unreachable` and alerts once; sign in in any tab and it recovers on the next sweep |
 | Generation fails instantly | No API key / custom URL configured — open **⚙** options |
+| 429 with the Claude-account provider | Brief limits retry automatically. An instant, persistent 429 on a Team/Enterprise plan usually means pooled usage is exhausted or your admin hasn't enabled this app for *Sign in with Claude* — the error text includes the server's own message. Alternatives: API key, an org gateway via the custom endpoint, or 🤖-off local drafting |
 | Generated script uses a selector that no longer matches | The UI changed since recording — re-record the affected step; never hand-patch guessed selectors |

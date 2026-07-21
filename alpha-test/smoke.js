@@ -51,13 +51,39 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const llmRequests = [];       // every body POSTed to the OpenAI-shaped stub
 const anthropicRequests = []; // {headers, body} POSTed to the Anthropic-shaped stub
 const tokenRequests = [];     // bodies POSTed to the stub OAuth token endpoint
+let anthropicMode = "ok"; // ok | 429-once | 429-always | 401-once
+let anthropicModeHits = 0;
 const server = http.createServer((req, res) => {
+  if (req.method === "POST" && req.url === "/__anthropic-mode") {
+    let body = "";
+    req.on("data", (c) => body += c);
+    req.on("end", () => {
+      anthropicMode = JSON.parse(body).mode;
+      anthropicModeHits = 0;
+      res.writeHead(200); res.end("ok");
+    });
+    return;
+  }
   if (req.method === "POST" && req.url === "/v1/messages") {
     let body = "";
     req.on("data", (c) => body += c);
     req.on("end", () => {
       try { anthropicRequests.push({ headers: req.headers, body: JSON.parse(body) }); }
       catch (e) { anthropicRequests.push({ headers: req.headers, parseError: String(e) }); }
+      anthropicModeHits++;
+      const err = (status, headers, message) => {
+        res.writeHead(status, Object.assign({ "content-type": "application/json" }, headers));
+        res.end(JSON.stringify({ error: { type: "stub_error", message } }));
+      };
+      if (anthropicMode === "429-once" && anthropicModeHits === 1) {
+        return err(429, { "retry-after": "1" }, "stub transient limit");
+      }
+      if (anthropicMode === "429-always") {
+        return err(429, { "retry-after": "3600" }, "stub org usage limit");
+      }
+      if (anthropicMode === "401-once" && anthropicModeHits === 1) {
+        return err(401, {}, "stub token revoked");
+      }
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ content: [{ type: "text", text: "# Claude Stub\n\nSubscription-auth completion." }] }));
     });
@@ -887,6 +913,42 @@ const server = http.createServer((req, res) => {
     const genNoAuth = await send({ cmd: "generate", target: "sop", recordingId: recId });
     check("clear error when not signed in",
       !!genNoAuth && genNoAuth.ok === false && /Claude account/.test(genNoAuth.error || ""), genNoAuth);
+
+    section("Claude account — 429/401 resilience");
+    const setAnthropicMode = (mode) =>
+      fetch(`${BASE}/__anthropic-mode`, { method: "POST", body: JSON.stringify({ mode }) });
+    await panel.evaluate((cfg) => chrome.storage.local.set(cfg), {
+      claudeAuth: { accessToken: "tok-a", refreshToken: "r-a", expiresAt: Date.now() + 3600e3 }
+    });
+
+    await setAnthropicMode("429-once");
+    let aHits = anthropicRequests.length;
+    const gen429 = await send({ cmd: "generate", target: "sop", recordingId: recId });
+    check("transient 429 retried automatically (Retry-After honored)",
+      gen429.ok === true && anthropicRequests.length === aHits + 2,
+      { ok: gen429.ok, hits: anthropicRequests.length - aHits });
+
+    await setAnthropicMode("429-always");
+    aHits = anthropicRequests.length;
+    const genLimit = await send({ cmd: "generate", target: "sop", recordingId: recId });
+    check("persistent limit: one attempt, no hammering on a long Retry-After",
+      genLimit.ok === false && anthropicRequests.length === aHits + 1,
+      { hits: anthropicRequests.length - aHits });
+    check("429 error is diagnostic (wait hint, enterprise guidance, server text)",
+      /rate\/usage-limited/.test(genLimit.error || "") && /~3600s/.test(genLimit.error || "") &&
+      /admin/.test(genLimit.error || "") && /stub org usage limit/.test(genLimit.error || ""),
+      genLimit.error);
+
+    await setAnthropicMode("401-once");
+    aHits = anthropicRequests.length;
+    const tHits = tokenRequests.length;
+    const gen401 = await send({ cmd: "generate", target: "sop", recordingId: recId });
+    check("401 forces a token refresh and the retry succeeds with the new token",
+      gen401.ok === true && tokenRequests.length === tHits + 1 &&
+      anthropicRequests.length === aHits + 2 &&
+      anthropicRequests[anthropicRequests.length - 1].headers.authorization === "Bearer tok-fresh",
+      { ok: gen401.ok, refreshes: tokenRequests.length - tHits });
+    await setAnthropicMode("ok");
 
     section("Options page — code exchange (PKCE) flow");
     const opts = await ctx.newPage();

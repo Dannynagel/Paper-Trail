@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Paper Trail — Procedure Recorder",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Record any browser procedure as semantic steps (real clicks, real labels) and generate a polished SOP with Claude or GPT. Screenshots stay local unless you opt in.",
   "minimum_chrome_version": "116",
   "permissions": [
